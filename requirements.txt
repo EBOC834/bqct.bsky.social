@@ -1,0 +1,4 @@
+httpx
+PyNaCl
+beautifulsoup4
+llama-cpp-python
