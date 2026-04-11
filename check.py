@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import sys
 import asyncio
@@ -5,16 +6,16 @@ import httpx
 import base64
 import json
 from nacl import encoding, public
+from datetime import datetime
 
-# Env Vars
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 OWNER_DID = os.getenv("OWNER_DID")
 PAT = os.getenv("PAT")
-GITHUB_REPO = os.getenv("GITHUB_REPOSITORY")
-LAST_PROCESSED = os.getenv("LAST_PROCESSED", "1970-01-01T00:00:00.000Z")
+GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
+LAST_PROCESSED = os.getenv("LAST_PROCESSED", "").strip()
 
-if not all([BOT_HANDLE, BOT_PASSWORD, OWNER_DID, PAT, GITHUB_REPO]):
+if not all([BOT_HANDLE, BOT_PASSWORD, OWNER_DID, PAT, GITHUB_REPOSITORY]):
     print("❌ Missing env vars", file=sys.stderr)
     sys.exit(1)
 
@@ -25,18 +26,18 @@ def encrypt_secret(pk, secret_value):
 async def get_pubkey():
     async with httpx.AsyncClient() as c:
         r = await c.get(
-            f"https://api.github.com/repos/{GITHUB_REPO}/actions/secrets/public-key",
+            f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/public-key",
             headers={"Authorization": f"token {PAT}"}
         )
         return r.json()
 
-async def update_last_processed(value):
+async def update_last_processed_secret(value):
     try:
         kd = await get_pubkey()
         enc = encrypt_secret(kd["key"], value)
         async with httpx.AsyncClient() as c:
             r = await c.put(
-                f"https://api.github.com/repos/{GITHUB_REPO}/actions/secrets/LAST_PROCESSED",
+                f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/LAST_PROCESSED",
                 headers={"Authorization": f"token {PAT}"},
                 json={"encrypted_value": enc, "key_id": kd["key_id"]}
             )
@@ -49,7 +50,17 @@ async def update_last_processed(value):
 
 async def main():
     try:
+        # --- WARM START LOGIC ---
+        if not LAST_PROCESSED:
+            now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            print(f"🔥 FIRST RUN: Secret is empty. Setting timestamp to NOW: {now}")
+            print("No old notifications will be processed.")
+            await update_last_processed_secret(now)
+            print("✅ Initialized. Waiting for next run.", flush=True)
+            sys.exit(0)
+        
         print(f"🔍 Checking notifications since {LAST_PROCESSED}", flush=True)
+        
         async with httpx.AsyncClient() as client:
             # Login
             r = await client.post(
@@ -100,6 +111,7 @@ async def main():
                 has_trigger = "!w" in txt.lower() or "!wa" in txt.lower()
                 has_mention = f"@{BOT_HANDLE}" in txt
                 
+                # Process if trigger, mention, or just a reply from owner
                 if has_trigger or has_mention or reason == "reply":
                     relevant.append({
                         "uri": uri,
@@ -110,7 +122,7 @@ async def main():
 
             # CRITICAL: Update LAST_PROCESSED immediately to lock this batch
             if relevant:
-                await update_last_processed(latest_idx)
+                await update_last_processed_secret(latest_idx)
                 
                 # Save work data for fresh_bot.py
                 with open("work_data.json", "w") as f:
@@ -121,7 +133,7 @@ async def main():
             else:
                 # Even if no relevant, update last processed to avoid re-checking old noise
                 if notifications:
-                     await update_last_processed(latest_idx)
+                     await update_last_processed_secret(latest_idx)
                 print("ℹ️ No new relevant notifications.", flush=True)
                 sys.exit(1) # No work
 
