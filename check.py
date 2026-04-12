@@ -5,7 +5,7 @@ import httpx
 import base64
 import json
 from nacl import encoding, public
-from datetime import datetime
+from datetime import datetime, timezone
 
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
@@ -43,38 +43,33 @@ async def update_last_processed_secret(value):
                 return True
     except Exception as e:
         print(f"Failed to update secret: {e}", flush=True)
-    return False
+        return False
 
 async def main():
     try:
         if is_empty(LAST_PROCESSED):
-            now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
             print(f"FIRST RUN: Setting timestamp to NOW: {now}", flush=True)
             await update_last_processed_secret(now)
             sys.exit(0)
-
         print(f"Checking notifications since {LAST_PROCESSED}", flush=True)
         async with httpx.AsyncClient() as client:
             r = await client.post("https://bsky.social/xrpc/com.atproto.server.createSession", json={"identifier": BOT_HANDLE, "password": BOT_PASSWORD}, timeout=30)
             if r.status_code != 200:
                 raise Exception(f"Login failed: {r.status_code}")
             token = r.json()["accessJwt"]
-
             r = await client.get("https://bsky.social/xrpc/app.bsky.notification.listNotifications", headers={"Authorization": f"Bearer {token}"}, params={"limit": 20}, timeout=30)
             if r.status_code != 200:
                 raise Exception(f"Fetch failed: {r.status_code}")
-
             notifications = r.json().get("notifications", [])
             relevant = []
             latest_idx = LAST_PROCESSED
-
             for n in notifications:
                 idx = n.get("indexedAt", "")
                 auth = n.get("author", {}).get("did", "")
                 reason = n.get("reason", "")
                 txt = (n.get("record", {}).get("text") or "").strip()
                 uri = n.get("uri", "")
-
                 if idx <= LAST_PROCESSED:
                     continue
                 if idx > latest_idx:
@@ -83,12 +78,10 @@ async def main():
                     continue
                 if reason not in ("mention", "reply"):
                     continue
-
                 has_t = "!t" in txt.lower()
                 has_c = "!c" in txt.lower()
                 has_trigger = has_t or has_c
                 has_mention = f"@{BOT_HANDLE}" in txt
-
                 if has_trigger or has_mention or reason == "reply":
                     search_type = None
                     if has_t:
@@ -97,7 +90,6 @@ async def main():
                         search_type = "chainbase"
                     relevant.append({"uri": uri, "text": txt, "has_search": has_trigger, "search_type": search_type})
                     print(f"Relevant: {txt[:30]}...", flush=True)
-
             if relevant:
                 github_output = os.getenv("GITHUB_OUTPUT", "")
                 if github_output:
@@ -113,7 +105,7 @@ async def main():
                 print("No new relevant notifications.", flush=True)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
-    sys.exit(0)
+        sys.exit(0)
 
 if __name__ == "__main__":
     asyncio.run(main())
