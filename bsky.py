@@ -21,23 +21,34 @@ async def get_record(client, token, uri):
     return r.json() if r.status_code == 200 else None
 
 async def get_thread_context(client, token, root_uri):
-    r = await client.get(f"{BSERVICE}/xrpc/app.bsky.feed.getPostThread", headers={"Authorization": f"Bearer {token}"}, params={"uri": root_uri, "depth": 5, "parentHeight": 1}, timeout=30)
+    r = await client.get(f"{BSERVICE}/xrpc/app.bsky.feed.getPostThread", headers={"Authorization": f"Bearer {token}"}, params={"uri": root_uri, "depth": 10, "parentHeight": 10}, timeout=30)
     if r.status_code != 200:
         return []
     thread = r.json().get("thread", {})
     posts = []
-    stack = [thread]
-    while stack:
-        node = stack.pop()
+    def collect(node):
         if not isinstance(node, dict):
-            continue
+            return
         if "post" in node:
-            rec = node["post"].get("record", {})
-            posts.append({"handle": node["post"].get("author", {}).get("handle", "unknown"), "text": rec.get("text", "")})
-            for key in ("replies", "parent"):
-                if key in node and isinstance(node[key], dict):
-                    stack.append(node[key])
-    return posts[-5:] if len(posts) > 5 else posts
+            post = node["post"]
+            rec = post.get("record", {})
+            posts.append({
+                "handle": post.get("author", {}).get("handle", "unknown"),
+                "text": rec.get("text", ""),
+                "uri": post.get("uri", ""),
+                "cid": post.get("cid", "")
+            })
+        for key in ("replies", "parent", "thread"):
+            if key in node:
+                val = node[key]
+                if isinstance(val, list):
+                    for child in val:
+                        collect(child)
+                elif isinstance(val, dict):
+                    collect(val)
+    collect(thread)
+    posts.sort(key=lambda x: x.get("uri", ""))
+    return posts[-10:] if len(posts) > 10 else posts
 
 async def extract_link_metadata(url):
     try:
