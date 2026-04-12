@@ -50,7 +50,7 @@ async def extract_link_metadata(url):
         return {"title": ""}
 
 async def post_reply(client, token, bot_did, text, root_uri, root_cid, parent_uri, parent_cid):
-    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     record = {
         "$type": "app.bsky.feed.post",
         "text": text,
