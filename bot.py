@@ -70,8 +70,13 @@ async def process_item(client, token, item, llm):
         print("Failed to get record", flush=True)
         return
     reply_info = rec["value"].get("reply", {})
-    root_uri = reply_info.get("root", {}).get("uri", uri)
-    root_cid = reply_info.get("root", {}).get("cid", "")
+    root_data = reply_info.get("root")
+    if root_data:
+        root_uri = root_data.get("uri", uri)
+        root_cid = root_data.get("cid", "")
+    else:
+        root_uri = uri
+        root_cid = rec.get("cid", "")
     parent_cid = rec.get("cid", "")
     thread_posts = await bsky.get_thread_context(client, token, root_uri)
     context_str = ""
