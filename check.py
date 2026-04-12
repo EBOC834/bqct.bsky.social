@@ -18,6 +18,12 @@ LAST_PROCESSED = os.getenv("LAST_PROCESSED", "").strip()
 if not all([BOT_HANDLE, BOT_PASSWORD, OWNER_DID, PAT, GITHUB_REPOSITORY]):
     sys.exit(1)
 
+def is_empty(value):
+    if not value:
+        return True
+    v = value.strip().lower()
+    return v in ("", "{}", "null", "none")
+
 def encrypt_secret(pk, secret_value):
     pk = public.PublicKey(pk.encode("utf-8"), encoding.Base64Encoder())
     return base64.b64encode(public.SealedBox(pk).encrypt(secret_value.encode("utf-8"))).decode("utf-8")
@@ -42,7 +48,7 @@ async def update_last_processed_secret(value):
 
 async def main():
     try:
-        if not LAST_PROCESSED:
+        if is_empty(LAST_PROCESSED):
             now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")
             print(f"FIRST RUN: Setting timestamp to NOW: {now}", flush=True)
             await update_last_processed_secret(now)
