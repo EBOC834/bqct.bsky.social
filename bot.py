@@ -104,7 +104,7 @@ async def process_item(client, token, item, llm):
     user_prompt = f"Context:\n{context_str}\nSearch Results:\n{search_results}\nUser Question:\n{user_text}\nAnswer:"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
     try:
-        out = llm.create_chat_completion(messages=messages, max_tokens=MAX_TOKENS, top_k=5, stop=["</s>", "<|im_end|>"], echo=False, temperature=TEMPERATURE, chat_template_kwargs={"reasoning": False})
+        out = llm.create_chat_completion(messages=messages, max_tokens=MAX_TOKENS, top_k=5, stop=["</s>", "<|im_end|>"], temperature=TEMPERATURE, chat_template_kwargs={"reasoning": False})
         reply = out["choices"][0]["message"]["content"].strip()
         reply = " ".join(reply.split())
         if len(reply) > 280:
