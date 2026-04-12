@@ -3,6 +3,7 @@ import sys
 import json
 import asyncio
 import httpx
+import re
 from llama_cpp import Llama
 import bsky
 import prompts
@@ -19,7 +20,9 @@ BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 
 def strip_reasoning(text):
-    text = re.sub(r'(?i)<think>.*?</think>', '', text, flags=re.DOTALL)
+    text = re.sub(r'</think>.*$', '', text, flags=re.DOTALL)
+    text = re.sub(r'^.*?<think>\s*', '', text, flags=re.DOTALL)
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
     text = re.sub(r'^\s*<think>\s*.*?$', '', text, flags=re.DOTALL | re.IGNORECASE)
     return text.strip()
 
