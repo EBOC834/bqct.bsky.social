@@ -12,13 +12,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - name: Cache pip
+      - name: Cache Python packages
         uses: actions/cache@v4
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-v1
-      - name: Install minimal deps (for check)
-        run: pip install httpx PyNaCl
+          path: ~/.local/lib/python3.10/site-packages
+          key: ${{ runner.os }}-py310-deps-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-py310-deps-
+      - name: Install minimal deps
+        run: pip install --user httpx PyNaCl
       - name: Check Notifications
         id: check
         continue-on-error: true
@@ -30,12 +32,11 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           LAST_PROCESSED: ${{ secrets.LAST_PROCESSED }}
         run: python check.py
-      - name: Install full deps (for bot)
+      - name: Install bot deps
         if: steps.check.outputs.has_work == 'true'
-        run: pip install beautifulsoup4 llama-cpp-python
+        run: pip install --user beautifulsoup4 llama-cpp-python
       - name: Cache Model
         uses: actions/cache@v4
-        if: steps.check.outputs.has_work == 'true'
         with:
           path: models/Qwen3-14B-Q4_K_M.gguf
           key: ${{ runner.os }}-qwen3-14b-gguf-v1
@@ -45,7 +46,6 @@ jobs:
           mkdir -p models
           FILE="models/Qwen3-14B-Q4_K_M.gguf"
           if [ ! -f "$FILE" ] || [ $(stat -c%s "$FILE") -lt 1000000000 ]; then
-            echo "Downloading Qwen3-14B..."
             curl -L -o "$FILE" "https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q4_K_M.gguf?download=true"
           fi
       - name: Run Bot
