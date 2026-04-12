@@ -3,6 +3,7 @@ import sys
 import json
 import asyncio
 import httpx
+import re
 from llama_cpp import Llama
 import bsky
 import prompts
@@ -18,13 +19,19 @@ BOT_DID = os.getenv("BOT_DID")
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 
+def strip_reasoning(text):
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    return text.strip()
+
 async def refine_query(llm, user_text, context_summary):
     system_prompt = "You are a search query optimizer. Create a concise, highly effective search query based on the user's question and context. Output ONLY the query."
     user_prompt = f"Context: {context_summary}\nQuestion: {user_text}\nQuery:"
     fp = f"  system\n{system_prompt}\n  user\n{user_prompt}\n  assistant\n"
     try:
-        out = llm(fp, max_tokens=50, temperature=0.5, stop=["  user", "  system", "  assistant"], echo=False)
-        return out["choices"][0]["text"].strip()
+        out = llm(fp, max_tokens=50, temperature=0.3, stop=["  user", "  system", "  assistant"], echo=False)
+        result = out["choices"][0]["text"].strip()
+        return strip_reasoning(result)
     except Exception as e:
         print(f"Refine error: {e}")
         return user_text
@@ -64,7 +71,9 @@ async def chainbase_search(query):
 def ask(llm, system_prompt, user_prompt):
     fp = f"  system\n{system_prompt}\n  user\n{user_prompt}\n  assistant\n"
     out = llm(fp, max_tokens=MAX_TOKENS, temperature=TEMPERATURE, stop=["  user", "  system", "  assistant"], echo=False)
-    reply = " ".join(out["choices"][0]["text"].strip().split())
+    reply = out["choices"][0]["text"].strip()
+    reply = strip_reasoning(reply)
+    reply = " ".join(reply.split())
     return reply[:RESPONSE_MAX_CHARS]
 
 async def process_item(client, token, item, llm):
