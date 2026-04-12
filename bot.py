@@ -9,10 +9,10 @@ import bsky
 import prompts
 
 MODEL_PATH = "models/Qwen3-14B-Q4_K_M.gguf"
-MODEL_N_CTX = 2048
+MODEL_N_CTX = 4096
 MODEL_N_THREADS = 2
 TEMPERATURE = 0.6
-MAX_TOKENS = 150
+MAX_TOKENS = 200
 RESPONSE_MAX_CHARS = 280
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 BOT_DID = os.getenv("BOT_DID")
@@ -20,8 +20,10 @@ BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 
 def strip_reasoning(text):
-    text = re.sub(r'(?i)<think>.*?</think>', '', text, flags=re.DOTALL)
-    text = re.sub(r'(?i)<think>.*', '', text, flags=re.DOTALL)
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'^\s*</think>\s*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'^\s*<think>\s*.*?$', '', text, flags=re.DOTALL | re.IGNORECASE)
     return text.strip()
 
 async def refine_query(llm, user_text, context_summary):
@@ -31,7 +33,8 @@ async def refine_query(llm, user_text, context_summary):
     try:
         out = llm(fp, max_tokens=50, temperature=0.3, stop=["  user", "  system", "  assistant"], echo=False)
         result = out["choices"][0]["text"].strip()
-        return strip_reasoning(result)[:200]
+        cleaned = strip_reasoning(result)
+        return cleaned[:200] if cleaned else user_text[:200]
     except Exception as e:
         print(f"Refine error: {e}")
         return user_text[:200]
@@ -68,7 +71,10 @@ async def chainbase_search(query):
         print(f"Chainbase error: {e}")
         return ""
 
-def ask(llm, system_prompt, user_prompt):
+def ask(llm, system_prompt, user_prompt, recent_replies=None):
+    if recent_replies:
+        history = "\n".join([f"[Previous reply {i+1}]: {r}" for i, r in enumerate(recent_replies[-3:])])
+        user_prompt = f"{history}\n\n{user_prompt}"
     fp = f"  system\n{system_prompt}\n  user\n{user_prompt}\n  assistant\n"
     out = llm(fp, max_tokens=MAX_TOKENS, temperature=TEMPERATURE, stop=["  user", "  system", "  assistant"], echo=False)
     raw_reply = out["choices"][0]["text"].strip()
@@ -79,7 +85,7 @@ def ask(llm, system_prompt, user_prompt):
     print(f"[LOG] FINAL ({len(final)} chars): {final}", flush=True)
     return final
 
-async def process_item(client, token, item, llm):
+async def process_item(client, token, item, llm, recent_replies=None):
     uri = item["uri"]
     user_text = item["text"]
     do_search = item["has_search"]
@@ -100,8 +106,9 @@ async def process_item(client, token, item, llm):
 
     thread_posts = await bsky.get_thread_context(client, token, root_uri)
     context_str = ""
-    for post in thread_posts[-5:]:
-        context_str += f"@{post['handle']}: {post['text']}\n"
+    for post in thread_posts:
+        marker = "[BOT]" if post.get("handle") == BOT_HANDLE else ""
+        context_str += f"@{post['handle']}{marker}: {post['text']}\n"
     if "http" in user_text:
         urls = [u for u in user_text.split() if u.startswith("http")]
         if urls:
@@ -126,20 +133,22 @@ async def process_item(client, token, item, llm):
     print(f"[LOG] SEARCH RESULTS:\n{search_results}", flush=True)
 
     personality = prompts.ANSWER_PROMPTS[1]
-    system_prompt = f"{personality}\nStrictly under {RESPONSE_MAX_CHARS} characters total. Direct answer only. No explanations."
+    system_prompt = f"{personality}\nStrictly under {RESPONSE_MAX_CHARS} characters total. Direct answer only. No explanations. Do not repeat previous replies."
     user_prompt = f"Context:\n{context_str}\nSearch Results:\n{search_results}\nUser Question:\n{user_text}\nAnswer:"
     print(f"[LOG] PROMPT HEAD:\n{user_prompt[:500]}...", flush=True)
 
     try:
-        reply = ask(llm, system_prompt, user_prompt)
-        if not reply:
+        reply = ask(llm, system_prompt, user_prompt, recent_replies)
+        if not reply or len(reply.strip()) < 2:
             reply = "Got it."
             print("[LOG] Fallback reply used (generation empty)", flush=True)
         print(f"Reply: {reply}", flush=True)
         await bsky.post_reply(client, token, BOT_DID, reply, root_uri, root_cid, uri, parent_cid)
         print("Posted!", flush=True)
+        return reply
     except Exception as e:
         print(f"Generation/Post error: {e}", flush=True)
+        return None
 
 async def main():
     if not os.path.exists("work_data.json"):
@@ -151,13 +160,16 @@ async def main():
     if not items:
         print("Work data empty.", flush=True)
         sys.exit(0)
+    recent_replies = []
     async with bsky.get_client() as client:
         token = await bsky.login(client, BOT_HANDLE, BOT_PASSWORD)
         print("Loading Qwen3-14B...", flush=True)
         llm = Llama(model_path=MODEL_PATH, n_ctx=MODEL_N_CTX, n_threads=MODEL_N_THREADS, verbose=False)
         print("Model loaded.", flush=True)
         for item in items:
-            await process_item(client, token, item, llm)
+            reply = await process_item(client, token, item, llm, recent_replies)
+            if reply:
+                recent_replies.append(reply)
             await asyncio.sleep(1)
     print("Done.", flush=True)
 
