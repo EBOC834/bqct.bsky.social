@@ -1,5 +1,4 @@
 name: Bluesky Bot (Optimized)
-
 on:
   schedule:
     - cron: '*/50 * * * *'
@@ -10,21 +9,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-v1
-
       - name: Install minimal deps (for check)
         run: pip install httpx PyNaCl
-
       - name: Check Notifications
         id: check
         continue-on-error: true
@@ -36,21 +31,17 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           LAST_PROCESSED: ${{ secrets.LAST_PROCESSED }}
         run: python check.py
-
       - name: Exit if no work
         if: steps.check.outcome != 'success'
         run: echo "No new notifications. Saving resources." && exit 0
-
       - name: Install full deps (for bot)
         if: steps.check.outcome == 'success'
         run: pip install beautifulsoup4 llama-cpp-python
-
       - name: Cache Model
         uses: actions/cache@v4
         with:
           path: models/Qwen3-14B-Q4_K_M.gguf
           key: ${{ runner.os }}-qwen3-14b-gguf-v1
-
       - name: Download Model if missing
         if: steps.check.outcome == 'success'
         run: |
@@ -60,7 +51,6 @@ jobs:
             echo "Downloading Qwen3-14B..."
             curl -L -o "$FILE" "https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q4_K_M.gguf?download=true"
           fi
-
       - name: Run Bot
         if: steps.check.outcome == 'success'
         env:
@@ -69,4 +59,4 @@ jobs:
           BOT_DID: ${{ secrets.BOT_DID }}
           OWNER_DID: ${{ secrets.OWNER_DID }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-        run: python fresh_bot.py
+        run: python bot.py
