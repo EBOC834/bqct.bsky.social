@@ -7,7 +7,6 @@ from llama_cpp import Llama
 import bsky_utils
 import prompts
 
-# Config
 MODEL_PATH = "models/Qwen3-14B-Q4_K_M.gguf"
 MODEL_N_CTX = 2048
 MODEL_N_THREADS = 2
@@ -19,16 +18,15 @@ BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 
 async def refine_query(llm, user_text, context_summary):
-    system_prompt = "You are a search query optimizer. Create a concise, highly effective search query based on the user's question and context. Output ONLY the query, nothing else."
+    system_prompt = "You are a search query optimizer. Create a concise, highly effective search query based on the user's question and context. Output ONLY the query."
     user_prompt = f"Context: {context_summary}\nQuestion: {user_text}\nQuery:"
     fp = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
     try:
         out = llm(fp, max_tokens=50, top_k=5, stop=["<|im_end|>", "<|im_start|>"], echo=False, temperature=0.5, chat_template_kwargs={"reasoning": False})
-        query = out["choices"][0]["text"].strip()
-        return query[:200] if query else user_text[:200]
+        return out["choices"][0]["text"].strip()
     except Exception as e:
         print(f"Refine error: {e}")
-        return user_text[:200]
+        return user_text
 
 async def tavily_search(query):
     if not TAVILY_API_KEY: return ""
@@ -37,10 +35,8 @@ async def tavily_search(query):
             r = await client.post("https://api.tavily.com/search", json={"api_key": TAVILY_API_KEY, "query": query, "search_depth": "basic", "include_answer": True, "max_results": 3}, timeout=30)
             if r.status_code == 200:
                 data = r.json()
-                answer = data.get("answer", "")
-                results = data.get("results", [])
-                summary = f"AI Answer: {answer}\n" if answer else ""
-                for res in results:
+                summary = f"AI Answer: {data.get('answer', '')}\n" if data.get("answer") else ""
+                for res in data.get("results", []):
                     summary += f"- {res.get('title', '')}: {res.get('content', '')[:150]}...\n"
                 return summary[:1000]
     except Exception as e:
@@ -71,30 +67,25 @@ async def process_item(client, token, item, llm):
         urls = [u for u in user_text.split() if u.startswith("http")]
         if urls:
             meta = await bsky_utils.extract_link_metadata(urls[0])
-            if meta.get("title"):
-                context_str += f"[Link Info: {meta['title']}]\n"
+            if meta.get("title"): context_str += f"[Link Info: {meta['title']}]\n"
 
     search_results = ""
     if do_search:
-        query = user_text.replace("!w", "").replace("!wa", "").strip()
-        if "!wa" in user_text.lower():
-            print("Refining query with AI...", flush=True)
-            query = await refine_query(llm, query, context_str)
-            print(f"Refined Query: {query}", flush=True)
-        print(f"Searching Tavily for: {query}", flush=True)
+        query = user_text.replace("!t", "").strip()
+        print("Refining query with AI...", flush=True)
+        query = await refine_query(llm, query, context_str)
+        print(f"Refined Query: {query}", flush=True)
         search_results = await tavily_search(query)
 
     personality = prompts.ANSWER_PROMPTS[1]
-    system_prompt = f"{personality}\nStrictly limit your response to a maximum of 300 characters. Do not use filler words. Be direct and natural."
+    system_prompt = f"{personality}\nStrictly ≤300 characters. Direct answer only."
     final_prompt = f"Context:\n{context_str}\nSearch Results:\n{search_results}\nUser Question:\n{user_text}\nAnswer:"
     fp = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{final_prompt}<|im_end|>\n<|im_start|>assistant\n"
 
     try:
-        # Zero-interference generation
         out = llm(fp, max_tokens=MAX_TOKENS, top_k=5, stop=["<|im_end|>", "<|im_start|>"], echo=False, temperature=TEMPERATURE, chat_template_kwargs={"reasoning": False})
         reply = out["choices"][0]["text"].strip()
         print(f"Reply: {reply}", flush=True)
-
         await bsky_utils.post_reply(client, token, BOT_DID, reply, root_uri, root_cid, uri, parent_cid)
         print("Posted!", flush=True)
     except Exception as e:
@@ -102,7 +93,7 @@ async def process_item(client, token, item, llm):
 
 async def main():
     if not os.path.exists("work_data.json"):
-        print("No work_data.json found. Exiting without loading model.", flush=True)
+        print("No work_data.json found. Exiting.", flush=True)
         sys.exit(0)
     with open("work_data.json", "r") as f:
         work_data = json.load(f)
