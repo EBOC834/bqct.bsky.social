@@ -26,8 +26,6 @@ async def refine_query(llm, user_text, context_summary):
     system_prompt = "You are a search query optimizer. Create a concise search query based on the user's question and context."
     user_prompt = f"Context: {context_summary}\nQuestion: {user_text}\nQuery:"
     
-    fp = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
-    
     try:
         out = llm(
             fp, 
@@ -123,10 +121,6 @@ async def process_item(client, token, item, llm):
     system_prompt = f"{personality}\nMax length: {RESPONSE_MAX_CHARS} chars."
     
     final_prompt = f"Context:\n{context_str}\nSearch Results:\n{search_results}\nUser Question:\n{user_text}\nAnswer:"
-    
-    # Chat Template for Qwen
-    # Note: Using manual template construction for stability, but passing reasoning=False
-    fp = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{final_prompt}<|im_end|>\n<|im_start|>assistant\n"
 
     try:
         out = llm(
