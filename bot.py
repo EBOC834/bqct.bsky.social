@@ -11,7 +11,7 @@ MODEL_PATH = "models/Qwen3-14B-Q4_K_M.gguf"
 MODEL_N_CTX = 2048
 MODEL_N_THREADS = 2
 TEMPERATURE = 0.6
-MAX_TOKENS = 150
+MAX_TOKENS = 300
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 BOT_DID = os.getenv("BOT_DID")
 BOT_HANDLE = os.getenv("BOT_HANDLE")
@@ -42,7 +42,7 @@ async def tavily_search(query):
                 return summary[:1000]
     except Exception as e:
         print(f"Tavily error: {e}")
-    return ""
+        return ""
 
 async def chainbase_search(query):
     try:
@@ -58,7 +58,7 @@ async def chainbase_search(query):
                 return summary[:1000]
     except Exception as e:
         print(f"Chainbase error: {e}")
-    return ""
+        return ""
 
 async def process_item(client, token, item, llm):
     uri = item["uri"]
@@ -104,14 +104,12 @@ async def process_item(client, token, item, llm):
     user_prompt = f"Context:\n{context_str}\nSearch Results:\n{search_results}\nUser Question:\n{user_text}\nAnswer:"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
     try:
-        out = llm(fp, max_tokens=MAX_TOKENS, top_k=5, stop=["</s>", "<|im_end|>"], echo=False, temperature=TEMPERATURE, chat_template_kwargs={"reasoning": False})
-        reply = out["choices"][0]["text"].strip()
-        reply = reply[:280]
+        out = llm.create_chat_completion(messages=messages, max_tokens=MAX_TOKENS, top_k=5, stop=["</s>", "<|im_end|>"], echo=False, temperature=TEMPERATURE, chat_template_kwargs={"reasoning": False})
+        reply = out["choices"][0]["message"]["content"].strip()
         reply = " ".join(reply.split())
-        print(f"Reply: {reply}", flush=True)
-        if len(reply) > 300:
-            print(f"Reply too long ({len(reply)} chars), truncating...", flush=True)
+        if len(reply) > 280:
             reply = reply[:280]
+        print(f"Reply: {reply}", flush=True)
         await bsky.post_reply(client, token, BOT_DID, reply, root_uri, root_cid, uri, parent_cid)
         print("Posted!", flush=True)
     except Exception as e:
@@ -135,7 +133,7 @@ async def main():
         for item in items:
             await process_item(client, token, item, llm)
             await asyncio.sleep(1)
-        print("Done.", flush=True)
+    print("Done.", flush=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
