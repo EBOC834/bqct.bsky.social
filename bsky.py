@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 BSERVICE = "https://bsky.social"
 
-async def get_client():
+def get_client():
     return httpx.AsyncClient()
 
 async def login(client, handle, password):
@@ -20,19 +20,16 @@ async def get_record(client, token, uri):
 
 async def get_thread_context(client, token, root_uri):
     r = await client.get(f"{BSERVICE}/xrpc/app.bsky.feed.getPostThread", headers={"Authorization": f"Bearer {token}"}, params={"uri": root_uri, "depth": 5, "parentHeight": 1}, timeout=30)
-    if r.status_code != 200:
-        return []
+    if r.status_code != 200: return []
     thread = r.json().get("thread", {})
     posts = []
     def extract(p):
-        if not isinstance(p, dict):
-            return
+        if not isinstance(p, dict): return
         if "post" in p:
             rec = p["post"]["record"]
             posts.append({"handle": p["post"].get("author", {}).get("handle", "unknown"), "text": rec.get("text", "")})
-        for child in ["replies", "parent"]:
-            if child in p:
-                extract(p[child])
+            for child in ["replies", "parent"]:
+                if child in p: extract(p[child])
     extract(thread)
     return posts
 
