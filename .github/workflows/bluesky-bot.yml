@@ -34,14 +34,15 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           LAST_PROCESSED: ${{ secrets.LAST_PROCESSED }}
         run: python check.py
-      - name: Install bot deps
-        if: steps.check.outputs.has_work == 'true'
-        run: pip install --user --quiet --upgrade-strategy only-if-needed -r requirements.txt
       - name: Cache Model
+        if: steps.check.outputs.has_work == 'true'
         uses: actions/cache@v4
         with:
           path: models/Qwen3-14B-Q4_K_M.gguf
           key: ${{ runner.os }}-qwen3-14b-gguf-v1
+      - name: Install bot deps
+        if: steps.check.outputs.has_work == 'true'
+        run: pip install --user --quiet --upgrade-strategy only-if-needed -r requirements.txt
       - name: Download Model if missing
         if: steps.check.outputs.has_work == 'true'
         run: |
