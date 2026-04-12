@@ -1,4 +1,4 @@
-name: Bluesky Bot
+name: Bluesky Bot (Optimized)
 on:
   schedule:
     - cron: '*/50 * * * *'
@@ -15,12 +15,14 @@ jobs:
       - name: Cache Python packages
         uses: actions/cache@v4
         with:
-          path: ~/.local/lib/python3.10/site-packages
+          path: |
+            ~/.local/lib/python3.10/site-packages
+            ~/.cache/pip
           key: ${{ runner.os }}-py310-deps-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-py310-deps-
       - name: Install minimal deps
-        run: pip install --user httpx PyNaCl
+        run: pip install --user --quiet --upgrade-strategy only-if-needed httpx PyNaCl
       - name: Check Notifications
         id: check
         continue-on-error: true
@@ -34,7 +36,7 @@ jobs:
         run: python check.py
       - name: Install bot deps
         if: steps.check.outputs.has_work == 'true'
-        run: pip install --user beautifulsoup4 llama-cpp-python
+        run: pip install --user --quiet --upgrade-strategy only-if-needed -r requirements.txt
       - name: Cache Model
         uses: actions/cache@v4
         with:
