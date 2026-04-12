@@ -104,7 +104,7 @@ async def process_item(client, token, item, llm):
     user_prompt = f"Context:\n{context_str}\nSearch Results:\n{search_results}\nUser Question:\n{user_text}\nAnswer:"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
     try:
-        out = llm(fp, max_tokens=MAX_TOKENS, top_k=5, stop=["</s>", "<|im_end|>"], echo=False, temperature=TEMPERATURE, chat_template_kwargs={"reasoning": False})
+        out = llm(max_tokens=MAX_TOKENS, top_k=5, stop=["</s>", "<|im_end|>"], echo=False, temperature=TEMPERATURE, chat_template_kwargs={"reasoning": False})
         reply = out["choices"][0]["text"].strip()
         reply = reply[:280]
         reply = " ".join(reply.split())
