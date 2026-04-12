@@ -35,7 +35,7 @@ async def get_thread_context(client, token, root_uri):
             rec = node["post"].get("record", {})
             posts.append({"handle": node["post"].get("author", {}).get("handle", "unknown"), "text": rec.get("text", "")})
             for key in ("replies", "parent"):
-                if key in node:
+                if key in node and isinstance(node[key], dict):
                     stack.append(node[key])
     return posts[-5:] if len(posts) > 5 else posts
 
@@ -50,14 +50,14 @@ async def extract_link_metadata(url):
         return {"title": ""}
 
 async def post_reply(client, token, bot_did, text, root_uri, root_cid, parent_uri, parent_cid):
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")
     record = {
         "$type": "app.bsky.feed.post",
         "text": text,
-        "langs": ["en"],
         "createdAt": now,
         "reply": {"root": {"uri": root_uri, "cid": root_cid}, "parent": {"uri": parent_uri, "cid": parent_cid}}
     }
-    r = await client.post(f"{BSERVICE}/xrpc/com.atproto.repo.createRecord", headers={"Authorization": f"Bearer {token}"}, json={"repo": bot_did, "collection": "app.bsky.feed.post", "record": record}, timeout=30)
+    payload = {"repo": bot_did, "collection": "app.bsky.feed.post", "record": record}
+    r = await client.post(f"{BSERVICE}/xrpc/com.atproto.repo.createRecord", headers={"Authorization": f"Bearer {token}"}, json=payload, timeout=30)
     r.raise_for_status()
     return r.json()
