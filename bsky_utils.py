@@ -30,10 +30,9 @@ async def refine_query(llm, user_text, context_summary):
         out = llm(
             fp, 
             max_tokens=50, 
-            stop=["<|im_end|>", "<|im_start|>"], 
             echo=False, 
             temperature=0.5,
-            chat_template_kwargs={"reasoning": False} # FIX FOR REASONING
+            chat_template_kwargs={"reasoning": False}
         )
         query = out["choices"][0]["text"].strip()
         return query[:200] if query else user_text[:200]
@@ -126,7 +125,6 @@ async def process_item(client, token, item, llm):
         out = llm(
             fp,
             max_tokens=MAX_TOKENS,
-            stop=["<|im_end|>", "<|im_start|>"],
             echo=False,
             temperature=TEMPERATURE,
             chat_template_kwargs={"reasoning": False} # THE FIX
