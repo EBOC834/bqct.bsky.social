@@ -31,7 +31,8 @@ async def refine_query(llm, user_text, context_summary):
     try:
         out = llm(fp, max_tokens=50, temperature=0.3, stop=["  user", "  system", "  assistant"], echo=False)
         result = out["choices"][0]["text"].strip()
-        return strip_reasoning(result)[:200]
+        cleaned = strip_reasoning(result)
+        return cleaned[:200] if cleaned else user_text[:200]
     except Exception as e:
         print(f"Refine error: {e}")
         return user_text[:200]
@@ -71,10 +72,14 @@ async def chainbase_search(query):
 def ask(llm, system_prompt, user_prompt):
     fp = f"  system\n{system_prompt}\n  user\n{user_prompt}\n  assistant\n"
     out = llm(fp, max_tokens=MAX_TOKENS, temperature=TEMPERATURE, stop=["  user", "  system", "  assistant"], echo=False)
-    reply = out["choices"][0]["text"].strip()
-    reply = strip_reasoning(reply)
-    reply = " ".join(reply.split())
-    return reply[:RESPONSE_MAX_CHARS]
+    raw_reply = out["choices"][0]["text"].strip()
+    print(f"[LOG] RAW MODEL:\n{raw_reply}", flush=True)
+    cleaned_reply = strip_reasoning(raw_reply)
+    print(f"[LOG] STRIPPED:\n{cleaned_reply}", flush=True)
+    final_reply = " ".join(cleaned_reply.split())
+    final_reply = final_reply[:RESPONSE_MAX_CHARS]
+    print(f"[LOG] FINAL ({len(final_reply)} chars): {final_reply}", flush=True)
+    return final_reply
 
 async def process_item(client, token, item, llm):
     uri = item["uri"]
@@ -87,7 +92,7 @@ async def process_item(client, token, item, llm):
         return
     reply_info = rec["value"].get("reply", {})
     root_data = reply_info.get("root")
-    if root_data:
+    if root_
         root_uri = root_data.get("uri", uri)
         root_cid = root_data.get("cid", "")
     else:
@@ -104,6 +109,7 @@ async def process_item(client, token, item, llm):
             meta = await bsky.extract_link_metadata(urls[0])
             if meta.get("title"):
                 context_str += f"[Link Info: {meta['title']}]\n"
+    print(f"[LOG] CONTEXT SEEN:\n{context_str}", flush=True)
     search_results = ""
     if do_search:
         query = user_text.replace("!t", "").replace("!c", "").strip()
@@ -115,11 +121,16 @@ async def process_item(client, token, item, llm):
             query = await refine_query(llm, query, context_str)
             print(f"Refined Query: {query}", flush=True)
             search_results = await tavily_search(query)
+    print(f"[LOG] SEARCH RESULTS:\n{search_results}", flush=True)
     personality = prompts.ANSWER_PROMPTS[1]
     system_prompt = f"{personality}\nStrictly under {RESPONSE_MAX_CHARS} characters total. Direct answer only. No explanations."
     user_prompt = f"Context:\n{context_str}\nSearch Results:\n{search_results}\nUser Question:\n{user_text}\nAnswer:"
+    print(f"[LOG] FULL PROMPT:\n{user_prompt[:500]}...", flush=True)
     try:
         reply = ask(llm, system_prompt, user_prompt)
+        if not reply:
+            reply = "Got it."
+            print("[LOG] Fallback used (empty generation)", flush=True)
         print(f"Reply: {reply}", flush=True)
         await bsky.post_reply(client, token, BOT_DID, reply, root_uri, root_cid, uri, parent_cid)
         print("Posted!", flush=True)
