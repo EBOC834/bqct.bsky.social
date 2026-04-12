@@ -11,7 +11,8 @@ MODEL_PATH = "models/Qwen3-14B-Q4_K_M.gguf"
 MODEL_N_CTX = 2048
 MODEL_N_THREADS = 2
 TEMPERATURE = 0.6
-MAX_TOKENS = 300
+MAX_TOKENS = 150
+RESPONSE_MAX_CHARS = 280
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 BOT_DID = os.getenv("BOT_DID")
 BOT_HANDLE = os.getenv("BOT_HANDLE")
@@ -20,10 +21,10 @@ BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 async def refine_query(llm, user_text, context_summary):
     system_prompt = "You are a search query optimizer. Create a concise, highly effective search query based on the user's question and context. Output ONLY the query."
     user_prompt = f"Context: {context_summary}\nQuestion: {user_text}\nQuery:"
-    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
+    fp = f"  system\n{system_prompt}\n  user\n{user_prompt}\n  assistant\n"
     try:
-        out = llm.create_chat_completion(messages=messages, max_tokens=50, temperature=0.5, stop=["<|im_end|>", "</s>"])
-        return out["choices"][0]["message"]["content"].strip()
+        out = llm(fp, max_tokens=50, temperature=0.5, stop=["  user", "  system", "  assistant"], echo=False)
+        return out["choices"][0]["text"].strip()
     except Exception as e:
         print(f"Refine error: {e}")
         return user_text
@@ -59,6 +60,12 @@ async def chainbase_search(query):
     except Exception as e:
         print(f"Chainbase error: {e}")
         return ""
+
+def ask(llm, system_prompt, user_prompt):
+    fp = f"  system\n{system_prompt}\n  user\n{user_prompt}\n  assistant\n"
+    out = llm(fp, max_tokens=MAX_TOKENS, temperature=TEMPERATURE, stop=["  user", "  system", "  assistant"], echo=False)
+    reply = " ".join(out["choices"][0]["text"].strip().split())
+    return reply[:RESPONSE_MAX_CHARS]
 
 async def process_item(client, token, item, llm):
     uri = item["uri"]
@@ -100,15 +107,10 @@ async def process_item(client, token, item, llm):
             print(f"Refined Query: {query}", flush=True)
             search_results = await tavily_search(query)
     personality = prompts.ANSWER_PROMPTS[1]
-    system_prompt = f"{personality}\nStrictly under 300 characters total. Direct answer only. No explanations."
+    system_prompt = f"{personality}\nStrictly under {RESPONSE_MAX_CHARS} characters total. Direct answer only. No explanations."
     user_prompt = f"Context:\n{context_str}\nSearch Results:\n{search_results}\nUser Question:\n{user_text}\nAnswer:"
-    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
     try:
-        out = llm.create_chat_completion(messages=messages, max_tokens=MAX_TOKENS, top_k=5, stop=["</s>", "<|im_end|>"], temperature=TEMPERATURE, chat_template_kwargs={"reasoning": False})
-        reply = out["choices"][0]["message"]["content"].strip()
-        reply = " ".join(reply.split())
-        if len(reply) > 280:
-            reply = reply[:280]
+        reply = ask(llm, system_prompt, user_prompt)
         print(f"Reply: {reply}", flush=True)
         await bsky.post_reply(client, token, BOT_DID, reply, root_uri, root_cid, uri, parent_cid)
         print("Posted!", flush=True)
