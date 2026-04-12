@@ -30,19 +30,17 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           LAST_PROCESSED: ${{ secrets.LAST_PROCESSED }}
         run: python check.py
-      - name: Exit if no work
-        if: steps.check.outcome != 'success'
-        run: echo "No new notifications. Saving resources." && exit 0
       - name: Install full deps (for bot)
-        if: steps.check.outcome == 'success'
+        if: steps.check.outputs.has_work == 'true'
         run: pip install beautifulsoup4 llama-cpp-python
       - name: Cache Model
         uses: actions/cache@v4
+        if: steps.check.outputs.has_work == 'true'
         with:
           path: models/Qwen3-14B-Q4_K_M.gguf
           key: ${{ runner.os }}-qwen3-14b-gguf-v1
       - name: Download Model if missing
-        if: steps.check.outcome == 'success'
+        if: steps.check.outputs.has_work == 'true'
         run: |
           mkdir -p models
           FILE="models/Qwen3-14B-Q4_K_M.gguf"
@@ -51,7 +49,7 @@ jobs:
             curl -L -o "$FILE" "https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q4_K_M.gguf?download=true"
           fi
       - name: Run Bot
-        if: steps.check.outcome == 'success'
+        if: steps.check.outputs.has_work == 'true'
         env:
           BOT_HANDLE: ${{ secrets.BOT_HANDLE }}
           BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
