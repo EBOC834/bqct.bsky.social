@@ -100,7 +100,7 @@ async def process_item(client, token, item, llm):
             print(f"Refined Query: {query}", flush=True)
             search_results = await tavily_search(query)
     personality = prompts.ANSWER_PROMPTS[1]
-    system_prompt = f"{personality}\nStrictly <=300 characters. Direct answer only."
+    system_prompt = f"{personality}\nStrictly under 300 characters total. Direct answer only. No explanations."
     user_prompt = f"Context:\n{context_str}\nSearch Results:\n{search_results}\nUser Question:\n{user_text}\nAnswer:"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
     try:
