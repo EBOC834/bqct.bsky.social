@@ -31,10 +31,10 @@ async def refine_query(llm, user_text, context_summary):
     try:
         out = llm(fp, max_tokens=50, temperature=0.3, stop=["  user", "  system", "  assistant"], echo=False)
         result = out["choices"][0]["text"].strip()
-        return strip_reasoning(result)
+        return strip_reasoning(result)[:200]
     except Exception as e:
         print(f"Refine error: {e}")
-        return user_text
+        return user_text[:200]
 
 async def tavily_search(query):
     if not TAVILY_API_KEY:
