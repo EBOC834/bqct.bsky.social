@@ -21,7 +21,7 @@ BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 
 def strip_reasoning(text):
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<think>.*', '', text, flags=re.DOTALL)
     return text.strip()
 
 async def refine_query(llm, user_text, context_summary):
