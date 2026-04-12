@@ -92,6 +92,10 @@ async def main():
                     relevant.append({"uri": uri, "text": txt, "has_search": has_trigger, "search_type": search_type})
                     print(f"Relevant: {txt[:30]}...", flush=True)
             if relevant:
+                github_output = os.getenv("GITHUB_OUTPUT", "")
+                if github_output:
+                    with open(github_output, "a") as f:
+                        f.write("has_work=true\n")
                 await update_last_processed_secret(latest_idx)
                 with open("work_data.json", "w") as f:
                     json.dump({"items": relevant}, f)
