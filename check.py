@@ -24,10 +24,7 @@ def encrypt_secret(pk, secret_value):
 
 async def get_pubkey():
     async with httpx.AsyncClient() as c:
-        r = await c.get(
-            f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/public-key",
-            headers={"Authorization": f"token {PAT}"}
-        )
+        r = await c.get(f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/public-key", headers={"Authorization": f"token {PAT}"})
         return r.json()
 
 async def update_last_processed_secret(value):
@@ -35,17 +32,13 @@ async def update_last_processed_secret(value):
         kd = await get_pubkey()
         enc = encrypt_secret(kd["key"], value)
         async with httpx.AsyncClient() as c:
-            r = await c.put(
-                f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/LAST_PROCESSED",
-                headers={"Authorization": f"token {PAT}"},
-                json={"encrypted_value": enc, "key_id": kd["key_id"]}
-            )
+            r = await c.put(f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/LAST_PROCESSED", headers={"Authorization": f"token {PAT}"}, json={"encrypted_value": enc, "key_id": kd["key_id"]})
             if r.status_code in (201, 204):
                 print(f"Updated LAST_PROCESSED={value}", flush=True)
                 return True
     except Exception as e:
         print(f"Failed to update secret: {e}", flush=True)
-        return False
+    return False
 
 async def main():
     try:
@@ -54,28 +47,16 @@ async def main():
             print(f"FIRST RUN: Setting timestamp to NOW: {now}", flush=True)
             await update_last_processed_secret(now)
             sys.exit(0)
-
         print(f"Checking notifications since {LAST_PROCESSED}", flush=True)
         async with httpx.AsyncClient() as client:
-            r = await client.post(
-                "https://bsky.social/xrpc/com.atproto.server.createSession",
-                json={"identifier": BOT_HANDLE, "password": BOT_PASSWORD},
-                timeout=30
-            )
+            r = await client.post("https://bsky.social/xrpc/com.atproto.server.createSession", json={"identifier": BOT_HANDLE, "password": BOT_PASSWORD}, timeout=30)
             if r.status_code != 200:
                 raise Exception(f"Login failed: {r.status_code}")
             token = r.json()["accessJwt"]
-
-            r = await client.get(
-                "https://bsky.social/xrpc/app.bsky.notification.listNotifications",
-                headers={"Authorization": f"Bearer {token}"},
-                params={"limit": 20},
-                timeout=30
-            )
+            r = await client.get("https://bsky.social/xrpc/app.bsky.notification.listNotifications", headers={"Authorization": f"Bearer {token}"}, params={"limit": 20}, timeout=30)
             if r.status_code != 200:
                 raise Exception(f"Fetch failed: {r.status_code}")
             notifications = r.json().get("notifications", [])
-
             relevant = []
             latest_idx = LAST_PROCESSED
             for n in notifications:
@@ -92,7 +73,6 @@ async def main():
                     continue
                 if reason not in ("mention", "reply"):
                     continue
-
                 has_t = "!t" in txt.lower()
                 has_c = "!c" in txt.lower()
                 has_trigger = has_t or has_c
@@ -103,14 +83,8 @@ async def main():
                         search_type = "tavily"
                     elif has_c:
                         search_type = "chainbase"
-                    relevant.append({
-                        "uri": uri,
-                        "text": txt,
-                        "has_search": has_trigger,
-                        "search_type": search_type
-                    })
+                    relevant.append({"uri": uri, "text": txt, "has_search": has_trigger, "search_type": search_type})
                     print(f"Relevant: {txt[:30]}...", flush=True)
-
             if relevant:
                 await update_last_processed_secret(latest_idx)
                 with open("work_data.json", "w") as f:
