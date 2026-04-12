@@ -11,7 +11,7 @@ MODEL_PATH = "models/Qwen3-14B-Q4_K_M.gguf"
 MODEL_N_CTX = 2048
 MODEL_N_THREADS = 2
 TEMPERATURE = 0.6
-MAX_TOKENS = 80
+MAX_TOKENS = 150
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 BOT_DID = os.getenv("BOT_DID")
 BOT_HANDLE = os.getenv("BOT_HANDLE")
@@ -20,10 +20,10 @@ BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 async def refine_query(llm, user_text, context_summary):
     system_prompt = "You are a search query optimizer. Create a concise, highly effective search query based on the user's question and context. Output ONLY the query."
     user_prompt = f"Context: {context_summary}\nQuestion: {user_text}\nQuery:"
-    fp = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
     try:
-        out = llm(fp, max_tokens=50, top_k=5, stop=["</s>", "<|im_end|>"], echo=False, temperature=0.5, chat_template_kwargs={"reasoning": False})
-        return out["choices"][0]["text"].strip()
+        out = llm.create_chat_completion(messages=messages, max_tokens=50, temperature=0.5, stop=["<|im_end|>", "</s>"])
+        return out["choices"][0]["message"]["content"].strip()
     except Exception as e:
         print(f"Refine error: {e}")
         return user_text
@@ -47,8 +47,7 @@ async def tavily_search(query):
 async def chainbase_search(query):
     try:
         async with httpx.AsyncClient() as client:
-            url = f"https://api.chainbase.online/v1/trending/search?q={httpx.URL(query)}"
-            r = await client.get(url, headers={"x-api-key": "demo"}, timeout=30)
+            r = await client.get("https://api.chainbase.online/v1/trending/search", headers={"x-api-key": "demo"}, params={"q": query}, timeout=30)
             if r.status_code == 200:
                 data = r.json()
                 summary = ""
@@ -96,12 +95,12 @@ async def process_item(client, token, item, llm):
             print(f"Refined Query: {query}", flush=True)
             search_results = await tavily_search(query)
     personality = prompts.ANSWER_PROMPTS[1]
-    system_prompt = f"{personality}\nStrictly ≤300 characters. Direct answer only."
-    final_prompt = f"Context:\n{context_str}\nSearch Results:\n{search_results}\nUser Question:\n{user_text}\nAnswer:"
-    fp = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
+    system_prompt = f"{personality}\nStrictly <=300 characters. Direct answer only."
+    user_prompt = f"Context:\n{context_str}\nSearch Results:\n{search_results}\nUser Question:\n{user_text}\nAnswer:"
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
     try:
-        out = llm(fp, max_tokens=MAX_TOKENS, top_k=5, stop=["</s>", "<|im_end|>"], echo=False, temperature=TEMPERATURE, chat_template_kwargs={"reasoning": False})
-        reply = out["choices"][0]["text"].strip()
+        out = llm.create_chat_completion(messages=messages, max_tokens=MAX_TOKENS, temperature=TEMPERATURE, stop=["<|im_end|>", "</s>"])
+        reply = out["choices"][0]["message"]["content"].strip()
         print(f"Reply: {reply}", flush=True)
         await bsky.post_reply(client, token, BOT_DID, reply, root_uri, root_cid, uri, parent_cid)
         print("Posted!", flush=True)
@@ -121,7 +120,7 @@ async def main():
     async with bsky.get_client() as client:
         token = await bsky.login(client, BOT_HANDLE, BOT_PASSWORD)
         print("Loading Qwen3-14B...", flush=True)
-        llm = Llama(model_path=MODEL_PATH, n_ctx=MODEL_N_CTX, n_threads=MODEL_N_THREADS, verbose=False, chat_template_kwargs={"reasoning": False})
+        llm = Llama(model_path=MODEL_PATH, n_ctx=MODEL_N_CTX, n_threads=MODEL_N_THREADS, verbose=False)
         print("Model loaded.", flush=True)
         for item in items:
             await process_item(client, token, item, llm)
