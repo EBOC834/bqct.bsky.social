@@ -104,9 +104,14 @@ async def process_item(client, token, item, llm):
     user_prompt = f"Context:\n{context_str}\nSearch Results:\n{search_results}\nUser Question:\n{user_text}\nAnswer:"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
     try:
-        out = llm.create_chat_completion(messages=messages, max_tokens=MAX_TOKENS, temperature=TEMPERATURE, stop=["<|im_end|>", "</s>"])
-        reply = out["choices"][0]["message"]["content"].strip()
+        out = llm(fp, max_tokens=MAX_TOKENS, top_k=5, stop=["</s>", "<|im_end|>"], echo=False, temperature=TEMPERATURE, chat_template_kwargs={"reasoning": False})
+        reply = out["choices"][0]["text"].strip()
+        reply = reply[:280]
+        reply = " ".join(reply.split())
         print(f"Reply: {reply}", flush=True)
+        if len(reply) > 300:
+            print(f"Reply too long ({len(reply)} chars), truncating...", flush=True)
+            reply = reply[:280]
         await bsky.post_reply(client, token, BOT_DID, reply, root_uri, root_cid, uri, parent_cid)
         print("Posted!", flush=True)
     except Exception as e:
