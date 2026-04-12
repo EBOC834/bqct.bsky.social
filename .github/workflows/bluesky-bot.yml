@@ -3,7 +3,6 @@ on:
   schedule:
     - cron: '*/50 * * * *'
   workflow_dispatch:
-
 jobs:
   check-and-run:
     runs-on: ubuntu-latest
