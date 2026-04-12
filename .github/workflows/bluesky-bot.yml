@@ -1,4 +1,4 @@
-name: Bluesky Bot (Optimized)
+name: Bluesky Bot
 on:
   schedule:
     - cron: '*/50 * * * *'
