@@ -40,10 +40,10 @@ jobs:
         with:
           path: models/Qwen3-14B-Q4_K_M.gguf
           key: ${{ runner.os }}-qwen3-14b-gguf-v1
-      - name: Install bot deps
+      - name: Install deps
         if: steps.check.outputs.has_work == 'true'
         run: |
-          CMAKE_ARGS="-DLLAMA_BLAS=OFF" pip install --user --quiet --only-binary :all: -r requirements.txt
+          CMAKE_ARGS="-DLLAMA_BLAS=OFF" pip install --user --quiet --only-binary :all: --no-binary llama-cpp-python -r requirements.txt
       - name: Download Model from ModelScope if missing
         if: steps.check.outputs.has_work == 'true'
         run: |
