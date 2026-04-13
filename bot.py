@@ -8,7 +8,7 @@ import prompts
 import bsky
 import config
 import context
-from sources import SEARCH_PROVIDERS
+from sources import SEARCH_PROVIDERS, SOURCE_SUFFIXES
 
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
@@ -135,6 +135,13 @@ async def process_item(client, token, item, llm):
         reply = ask(llm, personality, final_prompt)
         if not reply or len(reply.strip()) < 2:
             reply = "..."
+        
+        if do_search:
+            suffix = SOURCE_SUFFIXES.get(search_type, "")
+            if suffix:
+                max_reply_len = config.RESPONSE_MAX_CHARS - len(suffix)
+                reply = reply[:max_reply_len].rstrip() + suffix
+        
         print(f"Reply: {reply}", flush=True)
         
         parent_cid = rec.get("cid")
