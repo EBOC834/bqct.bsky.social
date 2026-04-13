@@ -4,9 +4,9 @@ import httpx
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 SOURCE_SUFFIXES = {
-    "tavily": " with tavily",
-    "chainbase": " with chainbase",
-    "wiki": " with wikipedia"
+    "tavily": " . tavily 🔎",
+    "chainbase": " . chainbase 💜💛",
+    "wiki": " . wiki 📚"
 }
 
 async def tavily_search(query):
