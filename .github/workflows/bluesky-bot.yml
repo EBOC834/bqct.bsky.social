@@ -61,7 +61,6 @@ jobs:
             echo "Verifying SHA256..."
             HASH=$(sha256sum "$FILE" | awk '{print $1}')
             echo "Hash: $HASH"
-            # SHA256 для Qwen2.5-14B-Q4_K_M.gguf (уточни при первом скачивании)
             if [ "$HASH" != "PUT_ACTUAL_SHA256_HERE" ]; then
               echo "ERROR: Model file corrupted or hash mismatch! Redownloading..."
               rm "$FILE"
