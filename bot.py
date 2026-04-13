@@ -151,11 +151,15 @@ async def process_item(client, token, item, llm):
         if not reply or len(reply.strip()) < 2:
             reply = "..."
         
-        if do_search:
+        if do_search and search_valid:
             suffix = SOURCE_SUFFIXES.get(search_type, "")
             if suffix:
                 max_reply_len = config.RESPONSE_MAX_CHARS - len(suffix)
                 reply = reply[:max_reply_len].rstrip() + suffix
+        else:
+            suffix = "\n\nQwen"
+            max_reply_len = config.RESPONSE_MAX_CHARS - len(suffix)
+            reply = reply[:max_reply_len].rstrip() + suffix
         
         print(f"Reply: {reply}", flush=True)
         
