@@ -3,48 +3,33 @@ import sys
 import json
 import asyncio
 import httpx
-import re
 from llama_cpp import Llama
-import bsky
-import prompts
 
-MODEL_PATH = "models/Qwen3-14B-Q4_K_M.gguf"
+import prompts
+import bsky
+
+MODEL_PATH = "models/Qwen2.5-14B-Q4_K_M.gguf"
 MODEL_N_CTX = 2048
 MODEL_N_THREADS = 2
-TEMPERATURE = 0.6
-MAX_TOKENS = 150
-RESPONSE_MAX_CHARS = 280
+TEMPERATURE = 0.7
+MAX_TOKENS = 512
+RESPONSE_MAX_CHARS = 300
+
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-BOT_DID = os.getenv("BOT_DID")
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
-
-def strip_reasoning(text):
-    text = re.sub(r'</think>.*$', '', text, flags=re.DOTALL)
-    text = re.sub(r'^.*?<think>\s*', '', text, flags=re.DOTALL)
-    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    text = re.sub(r'^\s*<think>\s*.*?$', '', text, flags=re.DOTALL | re.IGNORECASE)
-    return text.strip()
-
-async def refine_query(llm, user_text, context_summary):
-    system_prompt = "You are a search query optimizer. Create a concise, highly effective search query based on the user's question and context. Output ONLY the query."
-    user_prompt = f"Context: {context_summary}\nQuestion: {user_text}\nQuery:"
-    fp = f"  system\n{system_prompt}\n  user\n{user_prompt}\n  assistant\n"
-    try:
-        out = llm(fp, max_tokens=50, temperature=0.3, stop=["  user", "  system", "  assistant"], echo=False)
-        result = out["choices"][0]["text"].strip()
-        cleaned = strip_reasoning(result)
-        return cleaned[:200] if cleaned else user_text[:200]
-    except Exception as e:
-        print(f"Refine error: {e}")
-        return user_text[:200]
+BOT_DID = os.getenv("BOT_DID")
 
 async def tavily_search(query):
     if not TAVILY_API_KEY:
-        return ""
+        return "Tavily API Key missing."
     try:
         async with httpx.AsyncClient() as client:
-            r = await client.post("https://api.tavily.com/search", json={"api_key": TAVILY_API_KEY, "query": query, "search_depth": "basic", "include_answer": True, "max_results": 3}, timeout=30)
+            r = await client.post(
+                "https://api.tavily.com/search",
+                json={"api_key": TAVILY_API_KEY, "query": query, "search_depth": "basic", "include_answer": True, "max_results": 3},
+                timeout=30
+            )
             if r.status_code == 200:
                 data = r.json()
                 summary = f"AI Answer: {data.get('answer', '')}\n" if data.get("answer") else ""
@@ -52,113 +37,130 @@ async def tavily_search(query):
                     summary += f"- {res.get('title', '')}: {res.get('content', '')[:150]}...\n"
                 return summary[:1000]
     except Exception as e:
-        print(f"Tavily error: {e}")
-        return ""
+        return f"Error: {e}"
 
 async def chainbase_search(query):
     try:
         async with httpx.AsyncClient() as client:
             url = "https://api.chainbase.com/tops/v1/tool/search-narrative-candidates"
-            r = await client.get(url, headers={"x-api-key": "demo"}, params={"keyword": query, "language": "en", "limit": 3}, timeout=30)
+            r = await client.get(
+                url,
+                headers={"x-api-key": "demo"},
+                params={"keyword": query, "language": "en", "limit": 3},
+                timeout=30
+            )
             if r.status_code == 200:
                 data = r.json()
                 summary = ""
                 for item in data.get("items", [])[:3]:
                     keyword = item.get("keyword", "")
-                    summary_text = item.get("summary", "")[:150]
-                    summary += f"- {keyword}: {summary_text}...\n"
-                return summary[:1000]
+                    text = item.get("summary", "")[:150]
+                    summary += f"- {keyword}: {text}...\n"
+                return summary[:1000] if summary else "No specific trends found."
     except Exception as e:
-        print(f"Chainbase error: {e}")
-        return ""
-    return ""
+        return f"Error: {e}"
 
 def ask(llm, system_prompt, user_prompt):
-    fp = f"  system\n{system_prompt}\n  user\n{user_prompt}\n  assistant\n"
-    out = llm(fp, max_tokens=MAX_TOKENS, temperature=TEMPERATURE, stop=["  user", "  system", "  assistant"], echo=False)
-    raw_reply = out["choices"][0]["text"].strip()
-    cleaned = strip_reasoning(raw_reply)
-    final = " ".join(cleaned.split())[:RESPONSE_MAX_CHARS]
-    return final
+    prompt = f"  system\n{system_prompt}\n  user\n{user_prompt}\n  assistant\n"
+    out = llm(
+        prompt,
+        max_tokens=MAX_TOKENS,
+        temperature=TEMPERATURE,
+        stop=["  user", "  system", "  assistant"],
+        echo=False
+    )
+    raw_text = out["choices"][0]["text"].strip()
+    return raw_text[:RESPONSE_MAX_CHARS]
 
 async def process_item(client, token, item, llm):
     uri = item["uri"]
     user_text = item["text"]
-    do_search = item["has_search"]
+    do_search = item.get("has_search", False)
+    search_type = item.get("search_type", "tavily")
+
     print(f"Processing: {user_text[:30]}...", flush=True)
+
     rec = await bsky.get_record(client, token, uri)
     if not rec:
-        print("Failed to get record", flush=True)
         return
-    reply_info = rec["value"].get("reply", {})
-    root_data = reply_info.get("root")
-    if root_data:
-        root_uri = root_data.get("uri", uri)
-        root_cid = root_data.get("cid", "")
-    else:
-        root_uri = uri
-        root_cid = rec.get("cid", "")
-    parent_cid = rec.get("cid", "")
 
+    reply_info = rec["value"].get("reply", {})
+    root_uri = reply_info.get("root", {}).get("uri", uri)
+    
     thread_posts = await bsky.get_thread_context(client, token, root_uri)
     context_str = ""
-    for post in thread_posts[-5:]:
-        marker = "[BOT]" if post.get("handle") == BOT_HANDLE else ""
-        context_str += f"@{post['handle']}{marker}: {post['text']}\n"
-    if "http" in user_text:
-        urls = [u for u in user_text.split() if u.startswith("http")]
-        if urls:
-            meta = await bsky.extract_link_metadata(urls[0])
-            if meta.get("title"):
-                context_str += f"[Link Info: {meta['title']}]\n"
+    relevant_posts = []
+    if len(thread_posts) > 5:
+        relevant_posts = [thread_posts[0]] + thread_posts[-4:]
+    else:
+        relevant_posts = thread_posts
 
-    print(f"[LOG] CONTEXT:\n{context_str}", flush=True)
+    for post in relevant_posts:
+        marker = " [BOT]" if post.get("handle") == BOT_HANDLE else ""
+        context_str += f"@{post['handle']}{marker}: {post['text']}\n"
+
+    print(f"[LOG] CONTEXT:\n{context_str[:100]}...", flush=True)
 
     search_results = ""
     if do_search:
         query = user_text.replace("!t", "").replace("!c", "").strip()
-        if item.get("search_type") == "chainbase":
-            print("Searching Chainbase...", flush=True)
+        print(f"Searching ({search_type}) for: {query}", flush=True)
+        if search_type == "chainbase":
             search_results = await chainbase_search(query)
         else:
-            print("Refining query with AI...", flush=True)
-            query = await refine_query(llm, query, context_str)
-            print(f"Refined Query: {query}", flush=True)
             search_results = await tavily_search(query)
+        print(f"[LOG] SEARCH RESULTS:\n{search_results[:100]}...", flush=True)
 
-    print(f"[LOG] SEARCH RESULTS:\n{search_results}", flush=True)
-
-    personality = prompts.ANSWER_PROMPTS[1]
-    system_prompt = f"{personality}\nStrictly under {RESPONSE_MAX_CHARS} characters total. Direct answer only. No explanations."
-    user_prompt = f"Context:\n{context_str}\nSearch Results:\n{search_results}\nUser Question:\n{user_text}\nAnswer:"
-    print(f"[LOG] PROMPT HEAD:\n{user_prompt[:500]}...", flush=True)
+    personality = prompts.ANSWER_PROMPTS.get(1, "Answer concisely.")
+    
+    final_prompt = (
+        f"Context:\n{context_str}\n"
+        f"Search Results:\n{search_results}\n"
+        f"User Question:\n{user_text}\n"
+        f"Answer:"
+    )
 
     try:
-        reply = ask(llm, system_prompt, user_prompt)
+        reply = ask(llm, personality, final_prompt)
         if not reply or len(reply.strip()) < 2:
-            reply = "Got it."
-            print("[LOG] Fallback reply used (generation empty)", flush=True)
+            reply = "..."
         print(f"Reply: {reply}", flush=True)
+        parent_cid = rec.get("cid")
+        root_cid = reply_info.get("root", {}).get("cid", "")
         await bsky.post_reply(client, token, BOT_DID, reply, root_uri, root_cid, uri, parent_cid)
         print("Posted!", flush=True)
     except Exception as e:
-        print(f"Generation/Post error: {e}", flush=True)
+        print(f"Error generating/posting: {e}", flush=True)
 
 async def main():
     if not os.path.exists("work_data.json"):
-        print("No work_data.json found. Exiting.", flush=True)
-        sys.exit(0)
+        print("No work data found.", flush=True)
+        return
+
     with open("work_data.json", "r") as f:
         work_data = json.load(f)
+    
     items = work_data.get("items", [])
     if not items:
-        print("Work data empty.", flush=True)
-        sys.exit(0)
+        print("Empty queue.", flush=True)
+        return
+
+    print(f"Loading {MODEL_PATH}...", flush=True)
+    if not os.path.exists(MODEL_PATH):
+        print(f"Model not found at {MODEL_PATH}!", flush=True)
+        return
+
+    llm = Llama(
+        model_path=MODEL_PATH,
+        n_ctx=MODEL_N_CTX,
+        n_threads=MODEL_N_THREADS,
+        verbose=False,
+        n_batch=512
+    )
+    print("Model loaded.", flush=True)
+
     async with bsky.get_client() as client:
         token = await bsky.login(client, BOT_HANDLE, BOT_PASSWORD)
-        print("Loading Qwen3-14B...", flush=True)
-        llm = Llama(model_path=MODEL_PATH, n_ctx=MODEL_N_CTX, n_threads=MODEL_N_THREADS, verbose=False)
-        print("Model loaded.", flush=True)
         for item in items:
             await process_item(client, token, item, llm)
             await asyncio.sleep(1)
