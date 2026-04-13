@@ -42,7 +42,8 @@ jobs:
           key: ${{ runner.os }}-qwen3-14b-gguf-v1
       - name: Install bot deps
         if: steps.check.outputs.has_work == 'true'
-        run: pip install --user --quiet --upgrade-strategy only-if-needed -r requirements.txt
+        run: |
+          CMAKE_ARGS="-DLLAMA_BLAS=OFF" pip install --user --quiet --only-binary :all: -r requirements.txt
       - name: Download Model from ModelScope if missing
         if: steps.check.outputs.has_work == 'true'
         run: |
