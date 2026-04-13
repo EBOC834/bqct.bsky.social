@@ -7,8 +7,8 @@ from llama_cpp import Llama
 
 import prompts
 import bsky
-from sources import tavily_search, chainbase_search
 import config
+from sources import SEARCH_PROVIDERS
 
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
@@ -57,12 +57,16 @@ async def process_item(client, token, item, llm):
 
     search_results = ""
     if do_search:
-        query = user_text.replace("!t", "").replace("!c", "").strip()
+        query = user_text.replace("!t", "").replace("!c", "").replace("!w", "").strip()
         print(f"Searching ({search_type}) for: {query}", flush=True)
-        if search_type == "chainbase":
-            search_results = await chainbase_search(query)
+        
+        search_func = SEARCH_PROVIDERS.get(search_type)
+        
+        if search_func:
+            search_results = await search_func(query)
         else:
-            search_results = await tavily_search(query)
+            search_results = f"Unknown search type: {search_type}"
+            
         print(f"[LOG] SEARCH RESULTS:\n{search_results[:100]}...", flush=True)
 
     personality = prompts.ANSWER_PROMPTS.get(1, "Answer concisely.")
