@@ -1,4 +1,4 @@
-MODEL_PATH = "models/qwen2.5-14b-instruct-q4_k_m.gguf"
+MODEL_PATH = "models/qwen2.5-coder-14b-instruct-q5_k_m.gguf"
 MODEL_N_CTX = 2048
 MODEL_N_THREADS = 2
 TEMPERATURE = 0.7
