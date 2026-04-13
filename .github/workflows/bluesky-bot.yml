@@ -43,13 +43,14 @@ jobs:
       - name: Install bot deps
         if: steps.check.outputs.has_work == 'true'
         run: pip install --user --quiet --upgrade-strategy only-if-needed -r requirements.txt
-      - name: Download Model if missing
+      - name: Download Model from ModelScope if missing
         if: steps.check.outputs.has_work == 'true'
         run: |
           mkdir -p models
           FILE="models/Qwen3-14B-Q4_K_M.gguf"
           if [ ! -f "$FILE" ] || [ $(stat -c%s "$FILE") -lt 1000000000 ]; then
-            curl -L -o "$FILE" "https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q4_K_M.gguf?download=true"
+            pip install --user --quiet modelscope
+            modelscope download --model 'Qwen/Qwen3-14B-GGUF' --include '*Q4_K_M.gguf' --local_dir './models'
           fi
       - name: Run Bot
         if: steps.check.outputs.has_work == 'true'
