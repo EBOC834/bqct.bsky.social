@@ -40,39 +40,23 @@ jobs:
         if: steps.check.outputs.has_work == 'true'
         uses: actions/cache@v4
         with:
-          path: models/Qwen2.5-14B-Q4_K_M.gguf
-          key: ${{ runner.os }}-qwen25-14b-gguf-v1
+          path: models/qwen2.5-14b-instruct-q4_k_m.gguf
+          key: ${{ runner.os }}-qwen25-14b-instruct-ms-gguf-v1
       - name: Install bot deps
         if: steps.check.outputs.has_work == 'true'
         run: pip install --user --quiet -r requirements.txt
-      - name: Free Disk Space for Model
-        if: steps.check.outputs.has_work == 'true'
-        run: |
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/share/dotnet
-          df -h
       - name: Verify Model
         if: steps.check.outputs.has_work == 'true'
         run: |
-          FILE="models/Qwen2.5-14B-Q4_K_M.gguf"
-          if [ -f "$FILE" ]; then
+          FILE="models/qwen2.5-14b-instruct-q4_k_m.gguf"
+          if [ -f "$FILE" ] && [ $(stat -c%s "$FILE") -gt 8000000000 ]; then
             chmod +r "$FILE"
-            echo "Verifying SHA256..."
-            HASH=$(sha256sum "$FILE" | awk '{print $1}')
-            echo "Hash: $HASH"
-            if [ "$HASH" != "PUT_ACTUAL_SHA256_HERE" ]; then
-              echo "ERROR: Model file corrupted or hash mismatch! Redownloading..."
-              rm "$FILE"
-              pip install --user --quiet modelscope
-              modelscope download --model 'Qwen/Qwen2.5-14B-GGUF' --include '*Q4_K_M.gguf' --local_dir './models'
-            else
-              echo "Model verified successfully."
-            fi
+            echo "Model verified: $(stat -c%s "$FILE") bytes"
           else
-            echo "Model missing, downloading Qwen2.5-14B from ModelScope..."
+            echo "Downloading Qwen2.5-14B from ModelScope..."
+            mkdir -p models
             pip install --user --quiet modelscope
-            modelscope download --model 'Qwen/Qwen2.5-14B-GGUF' --include '*Q4_K_M.gguf' --local_dir './models'
+            modelscope download --model='qwen/Qwen2.5-14B-Instruct-GGUF' --include 'qwen2.5-14b-instruct-q4_k_m.gguf' --local_dir './models'
           fi
       - name: Run Bot
         if: steps.check.outputs.has_work == 'true'
