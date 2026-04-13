@@ -65,4 +65,17 @@ jobs:
           BOT_DID: ${{ secrets.BOT_DID }}
           OWNER_DID: ${{ secrets.OWNER_DID }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          PAT: ${{ secrets.PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          CONTEXT_SECRET_COUNT: "10"
+          CONTEXT_0: ${{ secrets.CONTEXT_0 }}
+          CONTEXT_1: ${{ secrets.CONTEXT_1 }}
+          CONTEXT_2: ${{ secrets.CONTEXT_2 }}
+          CONTEXT_3: ${{ secrets.CONTEXT_3 }}
+          CONTEXT_4: ${{ secrets.CONTEXT_4 }}
+          CONTEXT_5: ${{ secrets.CONTEXT_5 }}
+          CONTEXT_6: ${{ secrets.CONTEXT_6 }}
+          CONTEXT_7: ${{ secrets.CONTEXT_7 }}
+          CONTEXT_8: ${{ secrets.CONTEXT_8 }}
+          CONTEXT_9: ${{ secrets.CONTEXT_9 }}
         run: python bot.py
