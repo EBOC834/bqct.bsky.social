@@ -82,6 +82,19 @@ def select_relevant_posts(posts, limit=8):
     recent = posts[-(limit-1):]
     return [root] + recent
 
+def is_search_result_valid(search_results, search_type):
+    if not search_results:
+        return False
+    if "Error" in search_results:
+        return False
+    if search_type == "chainbase" and "No specific trends" in search_results:
+        return False
+    if search_type == "wiki" and ("No Wikipedia article" in search_results or "Could not fetch" in search_results):
+        return False
+    if search_type == "tavily" and "Tavily API Key missing" in search_results:
+        return False
+    return True
+
 async def process_item(client, token, item, llm):
     uri = item["uri"]
     user_text = item["text"]
@@ -106,12 +119,14 @@ async def process_item(client, token, item, llm):
     persisted_context = context.load_context(thread_id)
 
     search_results = ""
+    search_valid = False
     if do_search:
         query = user_text.replace("!t", "").replace("!c", "").replace("!w", "").strip()
         print(f"Searching ({search_type}) for: {query}", flush=True)
         search_func = SEARCH_PROVIDERS.get(search_type)
         if search_func:
             search_results = await search_func(query)
+            search_valid = is_search_result_valid(search_results, search_type)
         else:
             search_results = f"Unknown search type: {search_type}"
         print(f"[LOG] SEARCH RESULTS:\n{search_results[:100]}...", flush=True)
@@ -122,7 +137,7 @@ async def process_item(client, token, item, llm):
     if persisted_context:
         full_context += f"Thread Summary:\n{persisted_context}\n\n"
     full_context += f"Recent Context:\n{fresh_context}\n"
-    if search_results:
+    if search_results and search_valid:
         full_context += f"Search Results:\n{search_results}\n"
     
     final_prompt = (
@@ -149,23 +164,24 @@ async def process_item(client, token, item, llm):
         await bsky.post_reply(client, token, BOT_DID, reply, root_uri, root_cid, uri, parent_cid)
         print("Posted!", flush=True)
 
-        summary_prompt = (
-            f"  system\n{prompts.SUMMARIZE_PROMPT}\n"
-            f"  user\nCurrent Summary:\n{persisted_context}\n"
-            f"New Interaction:\nUser: {user_text}\nBot: {reply}\n"
-            f"Update summary concisely, keep only essential info. Output only the new summary.\n"
-            f"  assistant\n"
-        )
-        new_summary_raw = llm(
-            summary_prompt,
-            max_tokens=256,
-            temperature=0.3,
-            stop=["  user", "  system", "  assistant"],
-            echo=False
-        )["choices"][0]["text"].strip()
-        
-        new_summary = new_summary_raw[:config.CONTEXT_MAX_CHARS]
-        context.save_context(thread_id, new_summary)
+        if search_valid or not do_search:
+            summary_prompt = (
+                f"  system\n{prompts.SUMMARIZE_PROMPT}\n"
+                f"  user\nCurrent Summary:\n{persisted_context}\n"
+                f"New Interaction:\nUser: {user_text}\nBot: {reply}\n"
+                f"Update summary concisely, keep only essential info. Output only the new summary.\n"
+                f"  assistant\n"
+            )
+            new_summary_raw = llm(
+                summary_prompt,
+                max_tokens=256,
+                temperature=0.3,
+                stop=["  user", "  system", "  assistant"],
+                echo=False
+            )["choices"][0]["text"].strip()
+            
+            new_summary = new_summary_raw[:config.CONTEXT_MAX_CHARS]
+            context.save_context(thread_id, new_summary)
         
     except Exception as e:
         print(f"Error generating/posting: {e}", flush=True)
