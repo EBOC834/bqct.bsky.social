@@ -42,3 +42,42 @@ async def chainbase_search(query):
                 return summary[:1000] if summary else "No specific trends found."
     except Exception as e:
         return f"Error: {e}"
+
+async def wiki_search(query):
+    try:
+        async with httpx.AsyncClient() as client:
+            search_url = "https://en.wikipedia.org/w/api.php"
+            search_params = {
+                "action": "query",
+                "list": "search",
+                "srsearch": query,
+                "format": "json",
+                "srlimit": 1
+            }
+            r = await client.get(search_url, params=search_params, timeout=15)
+            if r.status_code != 200:
+                return "Wikipedia search error."
+            
+            data = r.json()
+            results = data.get("query", {}).get("search", [])
+            if not results:
+                return f"No Wikipedia article found for '{query}'."
+            
+            title = results[0]["title"]
+            summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
+            r = await client.get(summary_url, timeout=15)
+            
+            if r.status_code == 200:
+                summary_data = r.json()
+                extract = summary_data.get("extract", "")[:300]
+                url = summary_data.get("content_urls", {}).get("desktop", {}).get("page", "")
+                return f"{extract}... [More: {url}]"
+            return "Could not fetch Wikipedia content."
+    except Exception as e:
+        return f"Error: {e}"
+
+SEARCH_PROVIDERS = {
+    "tavily": tavily_search,
+    "chainbase": chainbase_search,
+    "wiki": wiki_search
+}
