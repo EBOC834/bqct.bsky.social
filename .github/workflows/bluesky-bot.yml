@@ -41,7 +41,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: models/qwen2.5-14b-instruct-q4_k_m.gguf
-          key: ${{ runner.os }}-qwen25-14b-instruct-ms-gguf-v1
+          key: ${{ runner.os }}-qwen25-14b-instruct-hf-gguf-v1
       - name: Install bot deps
         if: steps.check.outputs.has_work == 'true'
         run: pip install --user --quiet -r requirements.txt
@@ -53,10 +53,9 @@ jobs:
             chmod +r "$FILE"
             echo "Model verified: $(stat -c%s "$FILE") bytes"
           else
-            echo "Downloading Qwen2.5-14B from ModelScope..."
+            echo "Downloading Qwen2.5-14B from HuggingFace..."
             mkdir -p models
-            pip install --user --quiet modelscope
-            modelscope download --model='qwen/Qwen2.5-14B-Instruct-GGUF' --include 'qwen2.5-14b-instruct-q4_k_m.gguf' --local_dir './models'
+            curl -L -o "$FILE" "https://huggingface.co/Qwen/Qwen2.5-14B-Instruct-GGUF/resolve/main/qwen2.5-14b-instruct-q4_k_m.gguf"
           fi
       - name: Run Bot
         if: steps.check.outputs.has_work == 'true'
