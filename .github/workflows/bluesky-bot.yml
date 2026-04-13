@@ -12,6 +12,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/share/dotnet
+          df -h
       - name: Cache Python packages
         uses: actions/cache@v4
         with:
@@ -40,16 +46,18 @@ jobs:
         with:
           path: models/Qwen3-14B-Q4_K_M.gguf
           key: ${{ runner.os }}-qwen3-14b-gguf-v1
-      - name: Install deps
+      - name: Install bot deps
+        if: steps.check.outputs.has_work == 'true'
+        run: pip install --user --quiet -r requirements.txt
+      - name: Verify Model
         if: steps.check.outputs.has_work == 'true'
         run: |
-          CMAKE_ARGS="-DLLAMA_BLAS=OFF" pip install --user --quiet --only-binary :all: --no-binary llama-cpp-python -r requirements.txt
-      - name: Download Model from ModelScope if missing
-        if: steps.check.outputs.has_work == 'true'
-        run: |
-          mkdir -p models
           FILE="models/Qwen3-14B-Q4_K_M.gguf"
-          if [ ! -f "$FILE" ] || [ $(stat -c%s "$FILE") -lt 1000000000 ]; then
+          if [ -f "$FILE" ]; then
+            chmod +r "$FILE"
+            echo "Model exists: $(stat -c%s "$FILE") bytes"
+          else
+            echo "Model missing, downloading from ModelScope..."
             pip install --user --quiet modelscope
             modelscope download --model 'Qwen/Qwen3-14B-GGUF' --include '*Q4_K_M.gguf' --local_dir './models'
           fi
