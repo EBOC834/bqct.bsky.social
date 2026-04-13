@@ -55,7 +55,17 @@ jobs:
           FILE="models/Qwen3-14B-Q4_K_M.gguf"
           if [ -f "$FILE" ]; then
             chmod +r "$FILE"
-            echo "Model exists: $(stat -c%s "$FILE") bytes"
+            echo "Verifying SHA256..."
+            HASH=$(sha256sum "$FILE" | awk '{print $1}')
+            echo "Hash: $HASH"
+            if [ "$HASH" != "500a8806e85ee9c83f3ae08420295592451379b4f8cf2d0f41c15dffeb6b81f0" ]; then
+              echo "ERROR: Model file corrupted! Redownloading..."
+              rm "$FILE"
+              pip install --user --quiet modelscope
+              modelscope download --model 'Qwen/Qwen3-14B-GGUF' --include '*Q4_K_M.gguf' --local_dir './models'
+            else
+              echo "Model verified successfully."
+            fi
           else
             echo "Model missing, downloading from ModelScope..."
             pip install --user --quiet modelscope
