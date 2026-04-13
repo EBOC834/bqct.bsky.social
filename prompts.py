@@ -5,3 +5,5 @@ ANSWER_PROMPTS = {
     4: "If sources conflict, mention the range or uncertainty. Output only the final answer.",
     5: "If external data is unavailable, state that clearly and answer based on general knowledge. Output only the final answer."
 }
+
+SUMMARIZE_PROMPT = "You are maintaining a concise summary of a conversation thread. Update the summary with new essential information from the interaction. Remove redundant or outdated details. Keep it under 300 characters. Output only the summary text."
