@@ -8,13 +8,7 @@ from llama_cpp import Llama
 import prompts
 import bsky
 from sources import tavily_search, chainbase_search
-
-MODEL_PATH = "models/qwen2.5-14b-instruct-q4_k_m.gguf"
-MODEL_N_CTX = 2048
-MODEL_N_THREADS = 2
-TEMPERATURE = 0.7
-MAX_TOKENS = 512
-RESPONSE_MAX_CHARS = 300
+import config
 
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
@@ -24,13 +18,13 @@ def ask(llm, system_prompt, user_prompt):
     prompt = f"  system\n{system_prompt}\n  user\n{user_prompt}\n  assistant\n"
     out = llm(
         prompt,
-        max_tokens=MAX_TOKENS,
-        temperature=TEMPERATURE,
+        max_tokens=config.MAX_TOKENS,
+        temperature=config.TEMPERATURE,
         stop=["  user", "  system", "  assistant"],
         echo=False
     )
     raw_text = out["choices"][0]["text"].strip()
-    return raw_text[:RESPONSE_MAX_CHARS]
+    return raw_text[:config.RESPONSE_MAX_CHARS]
 
 async def process_item(client, token, item, llm):
     uri = item["uri"]
@@ -105,15 +99,15 @@ async def main():
         print("Empty queue.", flush=True)
         return
 
-    print(f"Loading {MODEL_PATH}...", flush=True)
-    if not os.path.exists(MODEL_PATH):
-        print(f"Model not found at {MODEL_PATH}!", flush=True)
+    print(f"Loading {config.MODEL_PATH}...", flush=True)
+    if not os.path.exists(config.MODEL_PATH):
+        print(f"Model not found at {config.MODEL_PATH}!", flush=True)
         return
 
     llm = Llama(
-        model_path=MODEL_PATH,
-        n_ctx=MODEL_N_CTX,
-        n_threads=MODEL_N_THREADS,
+        model_path=config.MODEL_PATH,
+        n_ctx=config.MODEL_N_CTX,
+        n_threads=config.MODEL_N_THREADS,
         verbose=False,
         n_batch=512
     )
