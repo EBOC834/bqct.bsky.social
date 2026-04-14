@@ -116,7 +116,7 @@ async def bluesky_search(query, **kwargs):
                     text = post.get("record", {}).get("text", "")[:150]
                     likes = post.get("likeCount", 0)
                     reposts = post.get("repostCount", 0)
-                    summary += f"- @{author} ({likes}♥ {reposts}↻): {text}...\n"
+                    summary += f"- @{author} ({likes} {reposts}): {text}...\n"
                 return summary[:1000]
             return f"Bluesky search error: HTTP {r.status_code}"
     except Exception as e:
