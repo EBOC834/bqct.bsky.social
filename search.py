@@ -6,7 +6,8 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 SOURCE_SUFFIXES = {
     "tavily": "\n\nQwen | Tavily",
-    "chainbase": "\n\nQwen | Chainbase"
+    "chainbase": "\n\nQwen | Chainbase",
+    "bluesky": "\n\nQwen | Bluesky"
 }
 
 def is_search_result_valid(search_results, search_type):
@@ -17,6 +18,8 @@ def is_search_result_valid(search_results, search_type):
     if search_type == "chainbase" and "No specific trends" in search_results:
         return False
     if search_type == "tavily" and "Tavily API Key missing" in search_results:
+        return False
+    if search_type == "bluesky" and ("Bluesky search error" in search_results or "No posts found" in search_results):
         return False
     return True
 
@@ -74,7 +77,30 @@ async def chainbase_search(query, **kwargs):
     except Exception as e:
         return f"Error: {e}"
 
+async def bluesky_search(query, **kwargs):
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                "https://bsky.social/xrpc/app.bsky.feed.searchPosts",
+                params={"q": query, "sort": "top", "limit": 10},
+                timeout=30
+            )
+            if r.status_code == 200:
+                data = r.json()
+                summary = ""
+                for post in data.get("posts", [])[:5]:
+                    author = post.get("author", {}).get("handle", "unknown")
+                    text = post.get("record", {}).get("text", "")[:150]
+                    likes = post.get("likeCount", 0)
+                    reposts = post.get("repostCount", 0)
+                    summary += f"- @{author} ({likes}♥ {reposts}↻): {text}...\n"
+                return summary[:1000] if summary else "No posts found."
+            return "Bluesky search error."
+    except Exception as e:
+        return f"Error: {e}"
+
 SEARCH_PROVIDERS = {
     "tavily": {"func": tavily_search, "supports": ["time_range", "topic"]},
-    "chainbase": {"func": chainbase_search, "supports": []}
+    "chainbase": {"func": chainbase_search, "supports": []},
+    "bluesky": {"func": bluesky_search, "supports": []}
 }
