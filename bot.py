@@ -87,7 +87,7 @@ async def process_item(client, item, llm):
     )
     print(f"Reply: {reply}", flush=True)
 
-    print(f"[DEBUG] Post params: root_uri={root_uri[:20]}..., root_cid={root_cid[:10] if root_cid else 'EMPTY'}, parent_uri={parent_uri[:20]}..., parent_cid={parent_cid[:10] if parent_cid else 'EMPTY'}", flush=True)
+    print(f"[DEBUG] Post params: root_uri={root_uri[:20]}..., root_cid={root_cid[:10] if root_cid else 'EMPTY'}, parent_uri={uri[:20]}..., parent_cid={parent_cid[:10] if parent_cid else 'EMPTY'}", flush=True)
     try:
         await bsky.post_reply(client, BOT_DID, reply, root_uri, root_cid, uri, parent_cid)
         print("Posted!", flush=True)
