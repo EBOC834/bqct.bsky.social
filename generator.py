@@ -32,6 +32,12 @@ def generate(llm, prompt, max_tokens=None, stop=None, temperature=None):
     )
     return out["choices"][0]["text"].strip()
 
+def extract_search_intent(llm, user_text, max_tokens=20):
+    prompt = (
+        f"  system\nExtract the core search intent from the user message. Ignore greetings, filler words, and conversational context. Output ONLY the clean search query (1-5 words).\n  user\n{user_text}\n  assistant\n"
+    )
+    return generate(llm, prompt, max_tokens=max_tokens, temperature=0.0, stop=["\n", "  user"])
+
 def format_reply(reply, do_search, search_valid, search_type):
     reply = reply[:config.RESPONSE_MAX_CHARS]
     suffix = SOURCE_SUFFIXES.get(search_type, "\n\nQwen") if do_search and search_valid else "\n\nQwen"
