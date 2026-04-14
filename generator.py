@@ -38,6 +38,27 @@ def extract_search_intent(llm, user_text, max_tokens=20):
     )
     return generate(llm, prompt, max_tokens=max_tokens, temperature=0.0, stop=["\n", "  user"])
 
+def extract_search_params(llm, user_text, max_tokens=60):
+    prompt = (
+        f"  system\nExtract search parameters from the user message. Output ONLY in this exact format:\nquery: <1-5 clean words>\ntime_range: <day|week|none>\ntopic: <news|none>\nIgnore greetings and filler.\n  user\n{user_text}\n  assistant\n"
+    )
+    raw = generate(llm, prompt, max_tokens=max_tokens, temperature=0.0, stop=["\n\n", "  user"])
+    params = {"query": "", "time_range": None, "topic": None}
+    for line in raw.strip().split("\n"):
+        if line.startswith("query:"):
+            params["query"] = line.split(":", 1)[1].strip()
+        elif line.startswith("time_range:"):
+            val = line.split(":", 1)[1].strip().lower()
+            if val in ["day", "week"]:
+                params["time_range"] = val
+        elif line.startswith("topic:"):
+            val = line.split(":", 1)[1].strip().lower()
+            if val == "news":
+                params["topic"] = "news"
+    if not params["query"]:
+        params["query"] = user_text.strip()[:50]
+    return params
+
 def format_reply(reply, do_search, search_type):
     reply = reply[:config.RESPONSE_MAX_CHARS]
     if do_search and search_type in SOURCE_SUFFIXES:
