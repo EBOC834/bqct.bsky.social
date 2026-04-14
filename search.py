@@ -6,8 +6,7 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 SOURCE_SUFFIXES = {
     "tavily": "\n\nQwen | Tavily",
-    "chainbase": "\n\nQwen | Chainbase",
-    "bluesky": "\n\nQwen | Bluesky"
+    "chainbase": "\n\nQwen | Chainbase"
 }
 
 def is_search_result_valid(search_results, search_type):
@@ -18,8 +17,6 @@ def is_search_result_valid(search_results, search_type):
     if search_type == "chainbase" and "No specific trends" in search_results:
         return False
     if search_type == "tavily" and "Tavily API Key missing" in search_results:
-        return False
-    if search_type == "bluesky" and ("Bluesky search error" in search_results or "No posts found" in search_results or "requires authentication" in search_results.lower() or "auth failed" in search_results.lower() or "credentials missing" in search_results.lower()):
         return False
     return True
 
@@ -77,53 +74,7 @@ async def chainbase_search(query, **kwargs):
     except Exception as e:
         return f"Error: {e}"
 
-async def bluesky_search(query, **kwargs):
-    bot_handle = os.getenv("BOT_HANDLE")
-    bot_password = os.getenv("BOT_PASSWORD")
-    if not bot_handle or not bot_password:
-        return "Bluesky search: credentials missing."
-    try:
-        async with httpx.AsyncClient() as auth_client:
-            auth_r = await auth_client.post(
-                "https://bsky.social/xrpc/com.atproto.server.createSession",
-                json={"identifier": bot_handle, "password": bot_password},
-                timeout=15
-            )
-            if auth_r.status_code != 200:
-                return "Bluesky auth failed."
-            token = auth_r.json().get('accessJwt')
-            if not token:
-                return "Bluesky: no token received."
-        async with httpx.AsyncClient() as search_client:
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "User-Agent": "bluesky-bot/1.0"
-            }
-            r = await search_client.get(
-                "https://bsky.social/xrpc/app.bsky.feed.searchPosts",
-                params={"q": query, "sort": "top", "limit": 10},
-                headers=headers,
-                timeout=30
-            )
-            if r.status_code == 200:
-                data = r.json()
-                posts = data.get("posts", [])
-                if not posts:
-                    return "No posts found."
-                summary = ""
-                for post in posts[:5]:
-                    author = post.get("author", {}).get("handle", "unknown")
-                    text = post.get("record", {}).get("text", "")[:150]
-                    likes = post.get("likeCount", 0)
-                    reposts = post.get("repostCount", 0)
-                    summary += f"- @{author} ({likes} {reposts}): {text}...\n"
-                return summary[:1000]
-            return f"Bluesky search error: HTTP {r.status_code}"
-    except Exception as e:
-        return f"Error: {e}"
-
 SEARCH_PROVIDERS = {
     "tavily": {"func": tavily_search, "supports": ["time_range", "topic"]},
-    "chainbase": {"func": chainbase_search, "supports": []},
-    "bluesky": {"func": bluesky_search, "supports": []}
+    "chainbase": {"func": chainbase_search, "supports": []}
 }
