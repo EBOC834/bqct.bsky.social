@@ -19,10 +19,14 @@ async def process_item(client, item, llm):
     print(f"Processing: {user_text[:30]}...", flush=True)
 
     rec = await bsky.get_record(client, uri)
-    if not rec: return
+    if not rec: 
+        print("Warning: Record not found, skipping.", flush=True)
+        return
 
     reply_info = rec["value"].get("reply", {})
     root_uri = reply_info.get("root", {}).get("uri", uri)
+    root_cid = reply_info.get("root", {}).get("cid", "")
+    parent_cid = rec.get("cid", "")
     thread_id = root_uri
 
     thread_posts = await bsky.get_thread_context(client, root_uri)
@@ -53,23 +57,40 @@ async def process_item(client, item, llm):
     reply = generator.format_reply(reply, do_search, search_valid, search_type)
     print(f"Reply: {reply}", flush=True)
 
-    await bsky.post_reply(client, BOT_DID, reply, root_uri, reply_info.get("root", {}).get("cid", ""), uri, rec.get("cid"))
+    try:
+        await bsky.post_reply(client, BOT_DID, reply, root_uri, root_cid, uri, parent_cid)
+        print("Posted!", flush=True)
+    except Exception as e:
+        print(f"Post failed: {e}", flush=True)
+        return
 
     if search_valid or not do_search:
-        new_summary = generator.generate_summary(llm, persisted_context, f"User: {user_text}\nBot: {reply}")
-        memory.save_context(thread_id, new_summary)
+        try:
+            new_summary = generator.generate_summary(llm, persisted_context, f"User: {user_text}\nBot: {reply}")
+            memory.save_context(thread_id, new_summary)
+            print("Context updated.", flush=True)
+        except Exception as e:
+            print(f"Memory update failed: {e}", flush=True)
 
 async def main():
-    if not os.path.exists("work_data.json"): return
-    with open("work_data.json", "r") as f: work_data = json.load(f)
-    if not work_data.get("items"): return
+    if not os.path.exists("work_data.json"): 
+        print("No work_data.json", flush=True)
+        return
+    with open("work_data.json", "r") as f: 
+        work_data = json.load(f)
+    if not work_data.get("items"): 
+        print("Empty queue.", flush=True)
+        return
 
     llm = generator.get_model()
     async with bsky.get_client() as client:
-        await bsky.login(client, BOT_HANDLE, BOT_PASSWORD)
-        for item in work_data["items"]:
-            await process_item(client, item, llm)
-            await asyncio.sleep(1)
+        try:
+            await bsky.login(client, BOT_HANDLE, BOT_PASSWORD)
+            for item in work_data["items"]:
+                await process_item(client, item, llm)
+                await asyncio.sleep(1)
+        except Exception as e:
+            print(f"Fatal error: {e}", flush=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
