@@ -15,25 +15,21 @@ async def login(client, handle, password):
 
 async def get_record(client, uri):
     parts = uri.split("/")
-    if len(parts) < 5:
-        return None
+    if len(parts) < 5: return None
     did, collection, rkey = parts[2], parts[3], parts[4]
     r = await client.get("/xrpc/com.atproto.repo.getRecord", params={"repo": did, "collection": collection, "rkey": rkey})
     return r.json() if r.status_code == 200 else None
 
 async def get_thread_context(client, root_uri):
     parts = root_uri.split("/")
-    if len(parts) < 5:
-        return []
+    if len(parts) < 5: return []
     did, collection, rkey = parts[2], parts[3], parts[4]
     r = await client.get("/xrpc/com.atproto.feed.getPostThread", params={"uri": root_uri, "depth": 60, "parentHeight": 50})
-    if r.status_code != 200:
-        return []
+    if r.status_code != 200: return []
     data = r.json()
     posts = []
     def extract(node):
-        if not node:
-            return
+        if not node: return
         p = node.get("post", {})
         posts.append({
             "handle": p.get("author", {}).get("handle"),
@@ -41,8 +37,7 @@ async def get_thread_context(client, root_uri):
             "embed": p.get("embed"),
             "cid": p.get("cid", "")
         })
-        for reply in node.get("replies", []):
-            extract(reply)
+        for reply in node.get("replies", []): extract(reply)
     extract(data.get("thread", {}))
     return posts
 
@@ -52,18 +47,14 @@ def extract_embed_text(post):
     if embed.get("$type") == "app.bsky.embed.images":
         for img in embed.get("images", []):
             alt = img.get("alt", "").strip()
-            if alt:
-                parts.append(f"[Image: {alt}]")
+            if alt: parts.append(f"[Image: {alt}]")
     elif embed.get("$type") == "app.bsky.embed.external":
         ext = embed.get("external", {})
-        if ext.get("title"):
-            parts.append(f"[Link: {ext['title']}]")
-        if ext.get("description"):
-            parts.append(f"[Desc: {ext['description'][:100]}]")
+        if ext.get("title"): parts.append(f"[Link: {ext['title']}]")
+        if ext.get("description"): parts.append(f"[Desc: {ext['description'][:100]}]")
     elif embed.get("$type") == "app.bsky.embed.record":
         rec = embed.get("record", {})
-        if rec.get("text"):
-            parts.append(f"[Quote: {rec['text'][:100]}]")
+        if rec.get("text"): parts.append(f"[Quote: {rec['text'][:100]}]")
     return " ".join(parts)
 
 def filter_and_select(posts, bot_handle, limit=8):
@@ -81,10 +72,18 @@ def format_context(selected, bot_handle):
         marker = " [BOT]" if p.get("handle") == bot_handle else ""
         embed = extract_embed_text(p)
         line = f"@{p.get('handle', 'unknown')}{marker}: {p.get('text', '')}"
-        if embed:
-            line += f" {embed}"
+        if embed: line += f" {embed}"
         lines.append(line)
     return "\n".join(lines)
+
+async def get_context_string(client, uri, bot_handle):
+    """
+    Black Box: Returns formatted context string.
+    Bot.py does not care how it's filtered or formatted.
+    """
+    posts = await get_thread_context(client, uri)
+    selected = filter_and_select(posts, bot_handle)
+    return format_context(selected, bot_handle)
 
 async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, parent_cid):
     if not all([root_uri, root_cid, parent_uri, parent_cid]):
