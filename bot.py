@@ -16,7 +16,9 @@ BOT_DID = os.getenv("BOT_DID")
 async def process_item(client, item, llm):
     uri, user_text = item["uri"], item["text"]
     do_search, search_type = item.get("has_search", False), item.get("search_type", "tavily")
-    print(f"Processing: {user_text[:30]}...", flush=True)
+
+    print(f"[DEBUG] work_data flags: has_search={do_search}, search_type={search_type}", flush=True)
+    print(f"[DEBUG] user_text: {user_text}", flush=True)
 
     rec = await bsky.get_record(client, uri)
     if not rec:
@@ -35,11 +37,11 @@ async def process_item(client, item, llm):
     search_results = ""
     search_valid = False
     if do_search:
-        print("\n=== [DEBUG] CONTEXT FOR QUERY EXTRACTION ===", flush=True)
+        print("[DEBUG] === CONTEXT FOR QUERY EXTRACTION ===", flush=True)
         print(f"User Message: {user_text}", flush=True)
-        print(f"Thread Summary: {persisted_context[:150] if persisted_context else 'None'}...", flush=True)
-        print(f"Recent Posts: {fresh_context[:150] if fresh_context else 'None'}...", flush=True)
-        print("================================================\n", flush=True)
+        print(f"Thread Summary: {persisted_context[:150] if persisted_context else 'None'}", flush=True)
+        print(f"Recent Posts: {fresh_context[:150] if fresh_context else 'None'}", flush=True)
+        print("[DEBUG] =====================================", flush=True)
 
         search_params = generator.extract_search_params(llm, user_text)
         print(f"[DEBUG] Extracted Params: {search_params}", flush=True)
@@ -54,7 +56,7 @@ async def process_item(client, item, llm):
             search_valid = search.is_search_result_valid(search_results, search_type)
             print(f"[DEBUG] Search Valid: {search_valid} | Results Length: {len(search_results)}", flush=True)
 
-    print("\n=== [DEBUG] CONTEXT FOR ANSWER GENERATION ===", flush=True)
+    print("[DEBUG] === CONTEXT FOR ANSWER GENERATION ===", flush=True)
     full_context = ""
     if persisted_context:
         full_context += f"Thread Summary:\n{persisted_context}\n\n"
@@ -71,9 +73,8 @@ async def process_item(client, item, llm):
         f"  user\n{full_context}User Question:\n{user_text}\n"
         f"  assistant\n"
     )
-    print(f"\n=== [DEBUG] FULL PROMPT TO MODEL ===\n{debug_prompt}\n==============================\n", flush=True)
-    
-    print("================================================\n", flush=True)
+    print(f"[DEBUG] FULL PROMPT TO MODEL:\n{debug_prompt}", flush=True)
+    print("[DEBUG] =========================================", flush=True)
 
     reply = generator.get_answer(
         llm,
