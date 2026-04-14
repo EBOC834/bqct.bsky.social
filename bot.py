@@ -7,7 +7,6 @@ import memory
 import search
 import generator
 import bsky
-import prompts
 
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
@@ -29,41 +28,38 @@ async def process_item(client, item, llm):
     parent_cid = rec.get("cid", "")
     thread_id = root_uri
 
-    thread_posts = await bsky.get_thread_context(client, root_uri)
-    selected = bsky.filter_and_select(thread_posts, BOT_HANDLE)
-    fresh_context = bsky.format_context(selected, BOT_HANDLE)
+    # 1. Получаем готовый контекст (не знаем, как он собран)
+    fresh_context = await bsky.get_context_string(client, root_uri, BOT_HANDLE)
     persisted_context = memory.load_context(thread_id)
 
-    search_results, search_valid = "", False
+    # 2. Определяем параметры поиска (не знаем, как модель их извлекла)
+    search_results = ""
+    search_valid = False
     if do_search:
         search_params = generator.extract_search_params(llm, user_text)
-        query = search_params["query"]
-        time_range = search_params["time_range"]
-        topic = search_params["topic"]
-        print(f"Searching ({search_type}) for: {query} | time:{time_range or 'any'} | topic:{topic or 'any'}", flush=True)
+        print(f"Searching ({search_type}) for: {search_params['query']} | time:{search_params['time_range']} | topic:{search_params['topic']}", flush=True)
         
         provider = search.SEARCH_PROVIDERS.get(search_type)
         if provider:
             func = provider["func"]
             supported = provider.get("supports", [])
-            kwargs = {k: v for k, v in {"time_range": time_range, "topic": topic}.items() if k in supported}
-            search_results = await func(query, **kwargs)
+            kwargs = {k: v for k, v in search_params.items() if k in supported}
+            
+            # Убираем query из kwargs, так как он идет первым аргументом
+            kwargs.pop('query', None)
+            
+            search_results = await func(search_params["query"], **kwargs)
             search_valid = search.is_search_result_valid(search_results, search_type)
 
-    full_context = ""
-    if persisted_context:
-        full_context += f"Thread Summary:\n{persisted_context}\n\n"
-    full_context += f"Recent Context:\n{fresh_context}\n"
-    if search_valid:
-        full_context += f"Search Results:\n{search_results}\n"
-
-    final_prompt = (
-        f"  system\n{prompts.ANSWER_SYSTEM}\n"
-        f"  user\n{full_context}\nUser Question:\n{user_text}\n"
-        f"  assistant\n"
+    # 3. Генерируем ответ (не знаем, какой промпт использовался)
+    reply = generator.get_answer(
+        llm,
+        context_str=persisted_context,
+        user_text=user_text,
+        search_results=search_results if search_valid else "",
+        do_search=do_search,
+        search_type=search_type
     )
-    reply = generator.generate(llm, final_prompt, stop=["  user", "  system", "  assistant"])
-    reply = generator.format_reply(reply, do_search, search_type)
     print(f"Reply: {reply}", flush=True)
 
     try:
@@ -73,9 +69,10 @@ async def process_item(client, item, llm):
         print(f"Post failed: {e}", flush=True)
         return
 
+    # 4. Обновляем память (не знаем, как формируется саммари)
     if search_valid or not do_search:
         try:
-            new_summary = generator.generate_summary(llm, persisted_context, f"User: {user_text}\nBot: {reply}")
+            new_summary = generator.update_summary(llm, persisted_context, user_text, reply)
             memory.save_context(thread_id, new_summary)
             print("Context updated.", flush=True)
         except Exception as e:
