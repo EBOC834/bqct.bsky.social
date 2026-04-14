@@ -34,8 +34,14 @@ async def process_item(client, item, llm):
     search_results = ""
     search_valid = False
     if do_search:
+        print("\n=== [DEBUG] CONTEXT FOR QUERY EXTRACTION ===", flush=True)
+        print(f"User Message: {user_text}", flush=True)
+        print(f"Thread Summary: {persisted_context[:150] if persisted_context else 'None'}...", flush=True)
+        print(f"Recent Posts: {fresh_context[:150] if fresh_context else 'None'}...", flush=True)
+        print("================================================\n", flush=True)
+
         search_params = generator.extract_search_params(llm, user_text)
-        print(f"Searching ({search_type}) for: {search_params['query']} | time:{search_params['time_range']} | topic:{search_params['topic']}", flush=True)
+        print(f"[DEBUG] Extracted Params: {search_params}", flush=True)
         
         provider = search.SEARCH_PROVIDERS.get(search_type)
         if provider:
@@ -45,6 +51,20 @@ async def process_item(client, item, llm):
             kwargs.pop('query', None)
             search_results = await func(search_params["query"], **kwargs)
             search_valid = search.is_search_result_valid(search_results, search_type)
+            print(f"[DEBUG] Search Valid: {search_valid} | Results Length: {len(search_results)}", flush=True)
+
+    print("\n=== [DEBUG] CONTEXT FOR ANSWER GENERATION ===", flush=True)
+    full_context = ""
+    if persisted_context:
+        full_context += f"Thread Summary:\n{persisted_context}\n\n"
+    if fresh_context:
+        full_context += f"Recent Context:\n{fresh_context}\n\n"
+    if search_results and search_valid:
+        full_context += f"Search Results:\n{search_results}\n\n"
+    
+    print(f"Full Context Block:\n{full_context}", flush=True)
+    print(f"User Question: {user_text}", flush=True)
+    print("================================================\n", flush=True)
 
     reply = generator.get_answer(
         llm,
