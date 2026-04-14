@@ -41,12 +41,13 @@ async def process_item(client, item, llm):
         time_range = search_params["time_range"]
         topic = search_params["topic"]
         print(f"Searching ({search_type}) for: {query} | time:{time_range or 'any'} | topic:{topic or 'any'}", flush=True)
-        func = search.SEARCH_PROVIDERS.get(search_type)
-        if func:
-            if search_type == "tavily":
-                search_results = await func(query, time_range=time_range, topic=topic)
-            else:
-                search_results = await func(query)
+        
+        provider = search.SEARCH_PROVIDERS.get(search_type)
+        if provider:
+            func = provider["func"]
+            supported = provider.get("supports", [])
+            kwargs = {k: v for k, v in {"time_range": time_range, "topic": topic}.items() if k in supported}
+            search_results = await func(query, **kwargs)
             search_valid = search.is_search_result_valid(search_results, search_type)
 
     full_context = ""
