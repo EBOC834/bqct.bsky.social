@@ -12,12 +12,24 @@ def get_model():
         print(f"Loading {config.MODEL_PATH}...", flush=True)
         if not os.path.exists(config.MODEL_PATH):
             raise FileNotFoundError(f"Model not found: {config.MODEL_PATH}")
-        _llm = Llama(model_path=config.MODEL_PATH, n_ctx=config.MODEL_N_CTX, n_threads=config.MODEL_N_THREADS, verbose=False, n_batch=512)
+        _llm = Llama(
+            model_path=config.MODEL_PATH,
+            n_ctx=config.MODEL_N_CTX,
+            n_threads=config.MODEL_N_THREADS,
+            verbose=False,
+            n_batch=512
+        )
         print("Model loaded.", flush=True)
     return _llm
 
-def generate(llm, prompt, max_tokens=None, stop=None):
-    out = llm(prompt, max_tokens=max_tokens or config.MAX_TOKENS, temperature=config.TEMPERATURE, stop=stop, echo=False)
+def generate(llm, prompt, max_tokens=None, stop=None, temperature=None):
+    out = llm(
+        prompt,
+        max_tokens=max_tokens or config.MAX_TOKENS,
+        temperature=temperature if temperature is not None else config.TEMPERATURE,
+        stop=stop,
+        echo=False
+    )
     return out["choices"][0]["text"].strip()
 
 def format_reply(reply, do_search, search_valid, search_type):
@@ -33,4 +45,5 @@ def generate_summary(llm, current_summary, interaction):
         f"Output only the new summary.\n"
         f"  assistant\n"
     )
-    return generate(llm, prompt, max_tokens=256, temperature=0.3, stop=["  user"])[:config.CONTEXT_MAX_CHARS]
+    raw_summary = generate(llm, prompt, max_tokens=256, temperature=0.3, stop=["  user"])
+    return raw_summary[:config.CONTEXT_MAX_CHARS]
