@@ -26,17 +26,33 @@ def is_search_result_valid(search_results, search_type):
         return False
     return True
 
-async def tavily_search(query):
+async def tavily_search(query, time_range=None, topic=None):
     if not TAVILY_API_KEY:
         return "Tavily API Key missing."
     try:
         async with httpx.AsyncClient() as client:
-            r = await client.post("https://api.tavily.com/search", json={"api_key": TAVILY_API_KEY, "query": query, "search_depth": "basic", "include_answer": True, "max_results": 3}, timeout=30)
+            payload = {
+                "api_key": TAVILY_API_KEY,
+                "query": query,
+                "search_depth": "basic",
+                "include_answer": True,
+                "include_raw_content": True,
+                "max_results": 3
+            }
+            if time_range:
+                payload["time_range"] = time_range
+            if topic:
+                payload["topic"] = topic
+            r = await client.post("https://api.tavily.com/search", json=payload, timeout=30)
             if r.status_code == 200:
                 data = r.json()
-                summary = f"AI Answer: {data.get('answer', '')}\n" if data.get("answer") else ""
+                summary = f"AI Answer: {data.get('answer', '')}\n" if data.get('answer') else ""
                 for res in data.get("results", []):
-                    summary += f"- {res.get('title', '')}: {res.get('content', '')[:150]}...\n"
+                    text = res.get("raw_content") or res.get("content", "")
+                    pub_date = res.get("published_date", "")
+                    if pub_date:
+                        text = f"[{pub_date}] {text}"
+                    summary += f"- {res.get('title', '')}: {text[:150]}...\n"
                 return summary[:1000]
     except Exception as e:
         return f"Error: {e}"
@@ -89,14 +105,12 @@ async def wiki_search(query):
     if simplified and simplified != query:
         queries_to_try.append(simplified)
     queries_to_try.extend(words)
-    
     last_result = None
     for q in queries_to_try:
         result = await _wiki_fetch(q)
         if result:
             return result
         last_result = f"No Wikipedia article found for '{q}'."
-    
     return last_result if last_result else "Could not fetch Wikipedia content."
 
 SEARCH_PROVIDERS = {"tavily": tavily_search, "chainbase": chainbase_search, "wiki": wiki_search}
