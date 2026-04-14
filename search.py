@@ -19,7 +19,7 @@ def is_search_result_valid(search_results, search_type):
         return False
     if search_type == "tavily" and "Tavily API Key missing" in search_results:
         return False
-    if search_type == "bluesky" and ("Bluesky search error" in search_results or "No posts found" in search_results or "requires authentication" in search_results.lower()):
+    if search_type == "bluesky" and ("Bluesky search error" in search_results or "No posts found" in search_results or "requires authentication" in search_results.lower() or "auth failed" in search_results.lower() or "credentials missing" in search_results.lower()):
         return False
     return True
 
@@ -78,14 +78,32 @@ async def chainbase_search(query, **kwargs):
         return f"Error: {e}"
 
 async def bluesky_search(query, **kwargs):
+    bot_handle = os.getenv("BOT_HANDLE")
+    bot_password = os.getenv("BOT_PASSWORD")
+    if not bot_handle or not bot_password:
+        return "Bluesky search: credentials missing."
     try:
-        async with httpx.AsyncClient() as client:
-            base_url = "https://public.api.bsky.app"
-            r = await client.get(
-                f"{base_url}/xrpc/app.bsky.feed.searchPosts",
+        async with httpx.AsyncClient() as auth_client:
+            auth_r = await auth_client.post(
+                "https://bsky.social/xrpc/com.atproto.server.createSession",
+                json={"identifier": bot_handle, "password": bot_password},
+                timeout=15
+            )
+            if auth_r.status_code != 200:
+                return "Bluesky auth failed."
+            token = auth_r.json().get('accessJwt')
+            if not token:
+                return "Bluesky: no token received."
+        async with httpx.AsyncClient() as search_client:
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "bluesky-bot/1.0"
+            }
+            r = await search_client.get(
+                "https://bsky.social/xrpc/app.bsky.feed.searchPosts",
                 params={"q": query, "sort": "top", "limit": 10},
-                timeout=30,
-                headers={"User-Agent": "bluesky-bot/1.0"}
+                headers=headers,
+                timeout=30
             )
             if r.status_code == 200:
                 data = r.json()
@@ -100,8 +118,6 @@ async def bluesky_search(query, **kwargs):
                     reposts = post.get("repostCount", 0)
                     summary += f"- @{author} ({likes}♥ {reposts}↻): {text}...\n"
                 return summary[:1000]
-            elif r.status_code == 401:
-                return "Bluesky search requires authentication."
             return f"Bluesky search error: HTTP {r.status_code}"
     except Exception as e:
         return f"Error: {e}"
