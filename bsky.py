@@ -1,74 +1,85 @@
 import httpx
-from bs4 import BeautifulSoup
-from datetime import datetime, timezone
+import asyncio
+import datetime
 
-BSERVICE = "https://bsky.social"
+BASE_URL = "https://bsky.social"
 
 def get_client():
-    return httpx.AsyncClient()
+    return httpx.AsyncClient(base_url=BASE_URL, timeout=30)
 
 async def login(client, handle, password):
-    r = await client.post(f"{BSERVICE}/xrpc/com.atproto.server.createSession", json={"identifier": handle, "password": password}, timeout=30)
+    r = await client.post("/xrpc/com.atproto.server.createSession", json={"identifier": handle, "password": password})
     r.raise_for_status()
-    return r.json()["accessJwt"]
+    data = r.json()
+    client.headers["Authorization"] = f"Bearer {data['accessJwt']}"
+    return data["accessJwt"]
 
-async def get_record(client, token, uri):
+async def get_record(client, uri):
     parts = uri.split("/")
-    if len(parts) < 5:
-        return None
-    repo, collection, rkey = parts[2:5]
-    r = await client.get(f"{BSERVICE}/xrpc/com.atproto.repo.getRecord", headers={"Authorization": f"Bearer {token}"}, params={"repo": repo, "collection": collection, "rkey": rkey}, timeout=30)
+    did, collection, rkey = parts[2], parts[3], parts[4]
+    r = await client.get("/xrpc/com.atproto.repo.getRecord", params={"repo": did, "collection": collection, "rkey": rkey})
     return r.json() if r.status_code == 200 else None
 
-async def get_thread_context(client, token, root_uri):
-    r = await client.get(f"{BSERVICE}/xrpc/app.bsky.feed.getPostThread", headers={"Authorization": f"Bearer {token}"}, params={"uri": root_uri, "depth": 10, "parentHeight": 10}, timeout=30)
-    if r.status_code != 200:
-        return []
-    thread = r.json().get("thread", {})
+async def get_thread_context(client, root_uri):
+    parts = root_uri.split("/")
+    did, collection, rkey = parts[2], parts[3], parts[4]
+    r = await client.get("/xrpc/com.atproto.feed.getPostThread", params={"uri": root_uri, "depth": 60, "parentHeight": 50})
+    if r.status_code != 200: return []
+    data = r.json()
     posts = []
-    def collect(node):
-        if not isinstance(node, dict):
-            return
-        if "post" in node:
-            post = node["post"]
-            rec = post.get("record", {})
-            posts.append({
-                "handle": post.get("author", {}).get("handle", "unknown"),
-                "text": rec.get("text", ""),
-                "uri": post.get("uri", ""),
-                "cid": post.get("cid", "")
-            })
-        for key in ("replies", "parent", "thread"):
-            if key in node:
-                val = node[key]
-                if isinstance(val, list):
-                    for child in val:
-                        collect(child)
-                elif isinstance(val, dict):
-                    collect(val)
-    collect(thread)
-    posts.sort(key=lambda x: x.get("uri", ""))
-    return posts[-10:] if len(posts) > 10 else posts
+    def extract(node):
+        if not node: return
+        p = node.get("post", {})
+        posts.append({"handle": p.get("author", {}).get("handle"), "text": p.get("record", {}).get("text", ""), "embed": p.get("embed")})
+        for reply in node.get("replies", []): extract(reply)
+    extract(data.get("thread", {}))
+    return posts
 
-async def extract_link_metadata(url):
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as c:
-            r = await c.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-            soup = BeautifulSoup(r.text, "html.parser")
-            title_tag = soup.find("title")
-            return {"title": title_tag.text.strip() if title_tag else ""}
-    except Exception:
-        return {"title": ""}
+def extract_embed_text(post):
+    parts = []
+    embed = post.get("embed", {})
+    if embed.get("$type") == "app.bsky.embed.images":
+        for img in embed.get("images", []):
+            alt = img.get("alt", "").strip()
+            if alt: parts.append(f"[Image: {alt}]")
+    elif embed.get("$type") == "app.bsky.embed.external":
+        ext = embed.get("external", {})
+        if ext.get("title"): parts.append(f"[Link: {ext['title']}]")
+        if ext.get("description"): parts.append(f"[Desc: {ext['description'][:100]}]")
+    elif embed.get("$type") == "app.bsky.embed.record":
+        rec = embed.get("record", {})
+        if rec.get("text"): parts.append(f"[Quote: {rec['text'][:100]}]")
+    return " ".join(parts)
 
-async def post_reply(client, token, bot_did, text, root_uri, root_cid, parent_uri, parent_cid):
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    record = {
-        "$type": "app.bsky.feed.post",
-        "text": text,
-        "createdAt": now,
-        "reply": {"root": {"uri": root_uri, "cid": root_cid}, "parent": {"uri": parent_uri, "cid": parent_cid}}
+def filter_and_select(posts, bot_handle, limit=8):
+    seen, valid = set(), []
+    for p in posts:
+        t = p.get("text", "").strip()
+        if len(t) >= 5 and t not in seen:
+            seen.add(t)
+            valid.append(p)
+    return valid if len(valid) <= limit else [valid[0]] + valid[-(limit-1):]
+
+def format_context(selected, bot_handle):
+    lines = []
+    for p in selected:
+        marker = " [BOT]" if p.get("handle") == bot_handle else ""
+        embed = extract_embed_text(p)
+        line = f"@{p.get('handle', 'unknown')}{marker}: {p.get('text', '')}"
+        if embed: line += f" {embed}"
+        lines.append(line)
+    return "\n".join(lines)
+
+async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, parent_cid):
+    payload = {
+        "repo": bot_did,
+        "collection": "app.bsky.feed.post",
+        "record": {
+            "$type": "app.bsky.feed.post",
+            "text": text,
+            "createdAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "reply": {"root": {"uri": root_uri, "cid": root_cid}, "parent": {"uri": parent_uri, "cid": parent_cid}}
+        }
     }
-    payload = {"repo": bot_did, "collection": "app.bsky.feed.post", "record": record}
-    r = await client.post(f"{BSERVICE}/xrpc/com.atproto.repo.createRecord", headers={"Authorization": f"Bearer {token}"}, json=payload, timeout=30)
-    r.raise_for_status()
+    r = await client.post("/xrpc/com.atproto.repo.createRecord", json=payload)
     return r.json()
