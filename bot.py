@@ -20,6 +20,14 @@ async def process_item(client, item, llm):
     print(f"[DEBUG] work_data flags: has_search={do_search}, search_type={search_type}", flush=True)
     print(f"[DEBUG] user_text: {user_text}", flush=True)
 
+    if not do_search:
+        if "!b" in user_text:
+            do_search, search_type = True, "bluesky"
+        elif "!t" in user_text:
+            do_search, search_type = True, "tavily"
+        elif "!c" in user_text:
+            do_search, search_type = True, "chainbase"
+
     rec = await bsky.get_record(client, uri)
     if not rec:
         print("Warning: Record not found, skipping.", flush=True)
