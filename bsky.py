@@ -92,20 +92,30 @@ async def get_context_string(client, uri, bot_handle):
     return format_context(selected, bot_handle)
 
 async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, parent_cid):
-    if not all([root_uri, root_cid, parent_uri, parent_cid]):
-        raise ValueError("Missing required URI/CID for reply")
+    if not root_uri or not parent_uri:
+        raise ValueError("Missing required URI for reply")
+    
+    reply_obj = None
+    if root_cid and parent_cid:
+        reply_obj = {
+            "root": {"uri": root_uri, "cid": root_cid},
+            "parent": {"uri": parent_uri, "cid": parent_cid}
+        }
+    
+    created_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    
+    record = {
+        "$type": "app.bsky.feed.post",
+        "text": text,
+        "createdAt": created_at
+    }
+    if reply_obj:
+        record["reply"] = reply_obj
+    
     payload = {
         "repo": bot_did,
         "collection": "app.bsky.feed.post",
-        "record": {
-            "$type": "app.bsky.feed.post",
-            "text": text,
-            "createdAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "reply": {
-                "root": {"uri": root_uri, "cid": root_cid},
-                "parent": {"uri": parent_uri, "cid": parent_cid}
-            }
-        }
+        "record": record
     }
     r = await client.post("/xrpc/com.atproto.repo.createRecord", json=payload)
     r.raise_for_status()
