@@ -1,0 +1,36 @@
+import os
+from llama_cpp import Llama
+import config
+import prompts
+from search import SOURCE_SUFFIXES
+
+_llm = None
+
+def get_model():
+    global _llm
+    if _llm is None:
+        print(f"Loading {config.MODEL_PATH}...", flush=True)
+        if not os.path.exists(config.MODEL_PATH):
+            raise FileNotFoundError(f"Model not found: {config.MODEL_PATH}")
+        _llm = Llama(model_path=config.MODEL_PATH, n_ctx=config.MODEL_N_CTX, n_threads=config.MODEL_N_THREADS, verbose=False, n_batch=512)
+        print("Model loaded.", flush=True)
+    return _llm
+
+def generate(llm, prompt, max_tokens=None, stop=None):
+    out = llm(prompt, max_tokens=max_tokens or config.MAX_TOKENS, temperature=config.TEMPERATURE, stop=stop, echo=False)
+    return out["choices"][0]["text"].strip()
+
+def format_reply(reply, do_search, search_valid, search_type):
+    reply = reply[:config.RESPONSE_MAX_CHARS]
+    suffix = SOURCE_SUFFIXES.get(search_type, "\n\nQwen") if do_search and search_valid else "\n\nQwen"
+    return reply.rstrip() + suffix
+
+def generate_summary(llm, current_summary, interaction):
+    prompt = (
+        f"  system\n{prompts.SUMMARIZE_SYSTEM}\n"
+        f"  user\nCurrent Summary:\n{current_summary}\n"
+        f"New Interaction:\n{interaction}\n"
+        f"Output only the new summary.\n"
+        f"  assistant\n"
+    )
+    return generate(llm, prompt, max_tokens=256, temperature=0.3, stop=["  user"])[:config.CONTEXT_MAX_CHARS]
