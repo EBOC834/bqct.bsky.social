@@ -2,7 +2,7 @@ import os
 from llama_cpp import Llama
 import config
 import prompts
-from search import SOURCE_SUFFIXES
+import search
 
 _llm = None
 
@@ -43,44 +43,42 @@ def extract_search_params(llm, user_text, max_tokens=60):
             params["query"] = line.split(":", 1)[1].strip()
         elif line.startswith("time_range:"):
             val = line.split(":", 1)[1].strip().lower()
-            if val in ["day", "week"]: params["time_range"] = val
+            if val in ["day", "week"]:
+                params["time_range"] = val
         elif line.startswith("topic:"):
             val = line.split(":", 1)[1].strip().lower()
-            if val == "news": params["topic"] = "news"
+            if val == "news":
+                params["topic"] = "news"
     if not params["query"]:
         params["query"] = user_text.strip()[:50]
     return params
 
-def get_answer(llm, context_str, user_text, search_results, do_search, search_type):
-    """
-    Black Box: Takes raw data -> Returns final reply with suffix.
-    Handles prompt construction and suffix logic internally.
-    """
-    context_block = f"Thread Summary:\n{context_str}\n\n" if context_str else ""
-    context_block += f"Recent Context:\n{context_str}\n" if context_str else "" # Correction: use fresh context here usually, but keeping simple for interface
+def get_answer(llm, memory_context, fresh_context, search_results, user_text, do_search, search_type):
+    context_block = ""
+    if memory_context:
+        context_block += f"Thread Summary:\n{memory_context}\n\n"
+    if fresh_context:
+        context_block += f"Recent Context:\n{fresh_context}\n\n"
     if search_results:
-        context_block += f"Search Results:\n{search_results}\n"
+        context_block += f"Search Results:\n{search_results}\n\n"
 
     final_prompt = (
         f"  system\n{prompts.ANSWER_SYSTEM}\n"
-        f"  user\n{context_block}\nUser Question:\n{user_text}\n"
+        f"  user\n{context_block}User Question:\n{user_text}\n"
         f"  assistant\n"
     )
     
     raw_reply = _raw_generate(llm, final_prompt, stop=["  user", "  system", "  assistant"])
     raw_reply = raw_reply[:config.RESPONSE_MAX_CHARS]
     
-    if do_search and search_type in SOURCE_SUFFIXES:
-        suffix = SOURCE_SUFFIXES[search_type]
+    if do_search and search_type in search.SOURCE_SUFFIXES:
+        suffix = search.SOURCE_SUFFIXES[search_type]
     else:
         suffix = "\n\nQwen"
         
     return raw_reply.rstrip() + suffix
 
 def update_summary(llm, current_summary, user_text, bot_reply):
-    """
-    Black Box: Takes interaction data -> Returns new summary string.
-    """
     prompt = (
         f"  system\n{prompts.SUMMARIZE_SYSTEM}\n"
         f"  user\nCurrent Summary:\n{current_summary}\n"
