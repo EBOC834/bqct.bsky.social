@@ -9,8 +9,6 @@ SOURCE_SUFFIXES = {
     "chainbase": "\n\nQwen | Chainbase"
 }
 
-SEARCH_FLAGS = {"!t": "tavily", "!c": "chainbase"}
-
 def is_search_result_valid(search_results, search_type):
     if not search_results:
         return False
