@@ -28,11 +28,9 @@ async def process_item(client, item, llm):
     parent_cid = rec.get("cid", "")
     thread_id = root_uri
 
-    # 1. Получаем готовый контекст (не знаем, как он собран)
     fresh_context = await bsky.get_context_string(client, root_uri, BOT_HANDLE)
     persisted_context = memory.load_context(thread_id)
 
-    # 2. Определяем параметры поиска (не знаем, как модель их извлекла)
     search_results = ""
     search_valid = False
     if do_search:
@@ -44,19 +42,16 @@ async def process_item(client, item, llm):
             func = provider["func"]
             supported = provider.get("supports", [])
             kwargs = {k: v for k, v in search_params.items() if k in supported}
-            
-            # Убираем query из kwargs, так как он идет первым аргументом
             kwargs.pop('query', None)
-            
             search_results = await func(search_params["query"], **kwargs)
             search_valid = search.is_search_result_valid(search_results, search_type)
 
-    # 3. Генерируем ответ (не знаем, какой промпт использовался)
     reply = generator.get_answer(
         llm,
-        context_str=persisted_context,
-        user_text=user_text,
+        memory_context=persisted_context,
+        fresh_context=fresh_context,
         search_results=search_results if search_valid else "",
+        user_text=user_text,
         do_search=do_search,
         search_type=search_type
     )
@@ -69,7 +64,6 @@ async def process_item(client, item, llm):
         print(f"Post failed: {e}", flush=True)
         return
 
-    # 4. Обновляем память (не знаем, как формируется саммари)
     if search_valid or not do_search:
         try:
             new_summary = generator.update_summary(llm, persisted_context, user_text, reply)
