@@ -33,9 +33,12 @@ def _write_secret(name, value):
 
 def _parse_slot(i):
     raw = os.getenv(f"CONTEXT_{i}", "")
-    if not raw: return None
-    try: return json.loads(raw)
-    except: return None
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except:
+        return None
 
 def load_context(thread_id):
     for i in range(SECRET_COUNT):
@@ -63,5 +66,7 @@ def save_context(thread_id, content):
                 oldest_idx = i
         target_idx = oldest_idx
     payload = json.dumps({"thread_id": thread_id, "content": content, "ts": int(time.time())}, ensure_ascii=False)
-    try: _write_secret(f"CONTEXT_{target_idx}", payload)
-    except: pass
+    try:
+        _write_secret(f"CONTEXT_{target_idx}", payload)
+    except:
+        pass
