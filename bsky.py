@@ -1,5 +1,4 @@
 import httpx
-import asyncio
 import datetime
 
 BASE_URL = "https://bsky.social"
@@ -16,12 +15,14 @@ async def login(client, handle, password):
 
 async def get_record(client, uri):
     parts = uri.split("/")
+    if len(parts) < 5: return None
     did, collection, rkey = parts[2], parts[3], parts[4]
     r = await client.get("/xrpc/com.atproto.repo.getRecord", params={"repo": did, "collection": collection, "rkey": rkey})
     return r.json() if r.status_code == 200 else None
 
 async def get_thread_context(client, root_uri):
     parts = root_uri.split("/")
+    if len(parts) < 5: return []
     did, collection, rkey = parts[2], parts[3], parts[4]
     r = await client.get("/xrpc/com.atproto.feed.getPostThread", params={"uri": root_uri, "depth": 60, "parentHeight": 50})
     if r.status_code != 200: return []
@@ -30,7 +31,12 @@ async def get_thread_context(client, root_uri):
     def extract(node):
         if not node: return
         p = node.get("post", {})
-        posts.append({"handle": p.get("author", {}).get("handle"), "text": p.get("record", {}).get("text", ""), "embed": p.get("embed")})
+        posts.append({
+            "handle": p.get("author", {}).get("handle"),
+            "text": p.get("record", {}).get("text", ""),
+            "embed": p.get("embed"),
+            "cid": p.get("cid", "")
+        })
         for reply in node.get("replies", []): extract(reply)
     extract(data.get("thread", {}))
     return posts
@@ -71,6 +77,9 @@ def format_context(selected, bot_handle):
     return "\n".join(lines)
 
 async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, parent_cid):
+    if not all([root_uri, root_cid, parent_uri, parent_cid]):
+        raise ValueError("Missing required URI/CID for reply")
+    
     payload = {
         "repo": bot_did,
         "collection": "app.bsky.feed.post",
@@ -78,8 +87,12 @@ async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, pare
             "$type": "app.bsky.feed.post",
             "text": text,
             "createdAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "reply": {"root": {"uri": root_uri, "cid": root_cid}, "parent": {"uri": parent_uri, "cid": parent_cid}}
+            "reply": {
+                "root": {"uri": root_uri, "cid": root_cid},
+                "parent": {"uri": parent_uri, "cid": parent_cid}
+            }
         }
     }
     r = await client.post("/xrpc/com.atproto.repo.createRecord", json=payload)
+    r.raise_for_status()
     return r.json()
