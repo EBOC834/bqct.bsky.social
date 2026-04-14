@@ -52,6 +52,7 @@ async def process_item(client, item, llm):
             supported = provider.get("supports", [])
             kwargs = {k: v for k, v in search_params.items() if k in supported}
             kwargs.pop('query', None)
+            print(f"[DEBUG] Search request: query='{search_params['query']}', kwargs={kwargs}", flush=True)
             search_results = await func(search_params["query"], **kwargs)
             search_valid = search.is_search_result_valid(search_results, search_type)
             print(f"[DEBUG] Search Valid: {search_valid} | Results Length: {len(search_results)}", flush=True)
