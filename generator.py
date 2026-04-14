@@ -38,9 +38,12 @@ def extract_search_intent(llm, user_text, max_tokens=20):
     )
     return generate(llm, prompt, max_tokens=max_tokens, temperature=0.0, stop=["\n", "  user"])
 
-def format_reply(reply, do_search, search_valid, search_type):
+def format_reply(reply, do_search, search_type):
     reply = reply[:config.RESPONSE_MAX_CHARS]
-    suffix = SOURCE_SUFFIXES.get(search_type, "\n\nQwen") if do_search and search_valid else "\n\nQwen"
+    if do_search and search_type in SOURCE_SUFFIXES:
+        suffix = SOURCE_SUFFIXES[search_type]
+    else:
+        suffix = "\n\nQwen"
     return reply.rstrip() + suffix
 
 def generate_summary(llm, current_summary, interaction):
