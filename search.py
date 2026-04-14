@@ -19,7 +19,7 @@ def is_search_result_valid(search_results, search_type):
         return False
     if search_type == "tavily" and "Tavily API Key missing" in search_results:
         return False
-    if search_type == "bluesky" and ("Bluesky search error" in search_results or "No posts found" in search_results):
+    if search_type == "bluesky" and ("Bluesky search error" in search_results or "No posts found" in search_results or "requires authentication" in search_results.lower()):
         return False
     return True
 
@@ -80,22 +80,29 @@ async def chainbase_search(query, **kwargs):
 async def bluesky_search(query, **kwargs):
     try:
         async with httpx.AsyncClient() as client:
+            base_url = "https://public.api.bsky.app"
             r = await client.get(
-                "https://bsky.social/xrpc/app.bsky.feed.searchPosts",
+                f"{base_url}/xrpc/app.bsky.feed.searchPosts",
                 params={"q": query, "sort": "top", "limit": 10},
-                timeout=30
+                timeout=30,
+                headers={"User-Agent": "bluesky-bot/1.0"}
             )
             if r.status_code == 200:
                 data = r.json()
+                posts = data.get("posts", [])
+                if not posts:
+                    return "No posts found."
                 summary = ""
-                for post in data.get("posts", [])[:5]:
+                for post in posts[:5]:
                     author = post.get("author", {}).get("handle", "unknown")
                     text = post.get("record", {}).get("text", "")[:150]
                     likes = post.get("likeCount", 0)
                     reposts = post.get("repostCount", 0)
                     summary += f"- @{author} ({likes}♥ {reposts}↻): {text}...\n"
-                return summary[:1000] if summary else "No posts found."
-            return "Bluesky search error."
+                return summary[:1000]
+            elif r.status_code == 401:
+                return "Bluesky search requires authentication."
+            return f"Bluesky search error: HTTP {r.status_code}"
     except Exception as e:
         return f"Error: {e}"
 
