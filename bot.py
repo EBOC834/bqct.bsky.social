@@ -7,6 +7,7 @@ import memory
 import search
 import generator
 import bsky
+import prompts
 
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
@@ -64,6 +65,14 @@ async def process_item(client, item, llm):
     
     print(f"Full Context Block:\n{full_context}", flush=True)
     print(f"User Question: {user_text}", flush=True)
+    
+    debug_prompt = (
+        f"  system\n{prompts.ANSWER_SYSTEM}\n"
+        f"  user\n{full_context}User Question:\n{user_text}\n"
+        f"  assistant\n"
+    )
+    print(f"\n=== [DEBUG] FULL PROMPT TO MODEL ===\n{debug_prompt}\n==============================\n", flush=True)
+    
     print("================================================\n", flush=True)
 
     reply = generator.get_answer(
