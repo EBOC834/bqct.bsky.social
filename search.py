@@ -31,7 +31,7 @@ async def tavily_search(query, time_range=None, topic=None, **kwargs):
                 "search_depth": "basic",
                 "include_answer": True,
                 "include_raw_content": True,
-                "max_results": 3
+                "max_results": 5
             }
             if time_range:
                 payload["time_range"] = time_range
