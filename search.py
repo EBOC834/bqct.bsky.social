@@ -9,6 +9,8 @@ SOURCE_SUFFIXES = {
     "chainbase": "\n\nQwen | Chainbase"
 }
 
+SEARCH_FLAGS = {"!t": "tavily", "!c": "chainbase"}
+
 def is_search_result_valid(search_results, search_type):
     if not search_results:
         return False
@@ -20,7 +22,7 @@ def is_search_result_valid(search_results, search_type):
         return False
     return True
 
-async def tavily_search(query, time_range=None, topic=None):
+async def tavily_search(query, time_range=None, topic=None, **kwargs):
     if not TAVILY_API_KEY:
         return "Tavily API Key missing."
     try:
@@ -51,7 +53,7 @@ async def tavily_search(query, time_range=None, topic=None):
     except Exception as e:
         return f"Error: {e}"
 
-async def chainbase_search(query):
+async def chainbase_search(query, **kwargs):
     try:
         async with httpx.AsyncClient() as client:
             if query and len(query.strip()) > 3:
@@ -74,4 +76,7 @@ async def chainbase_search(query):
     except Exception as e:
         return f"Error: {e}"
 
-SEARCH_PROVIDERS = {"tavily": tavily_search, "chainbase": chainbase_search}
+SEARCH_PROVIDERS = {
+    "tavily": {"func": tavily_search, "supports": ["time_range", "topic"]},
+    "chainbase": {"func": chainbase_search, "supports": []}
+}
