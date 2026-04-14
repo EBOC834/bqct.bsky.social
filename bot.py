@@ -36,11 +36,17 @@ async def process_item(client, item, llm):
 
     search_results, search_valid = "", False
     if do_search:
-        search_query = generator.extract_search_intent(llm, user_text)
-        print(f"Searching ({search_type}) for: {search_query}", flush=True)
+        search_params = generator.extract_search_params(llm, user_text)
+        query = search_params["query"]
+        time_range = search_params["time_range"]
+        topic = search_params["topic"]
+        print(f"Searching ({search_type}) for: {query} | time:{time_range or 'any'} | topic:{topic or 'any'}", flush=True)
         func = search.SEARCH_PROVIDERS.get(search_type)
         if func:
-            search_results = await func(search_query)
+            if search_type == "tavily":
+                search_results = await func(query, time_range=time_range, topic=topic)
+            else:
+                search_results = await func(query)
             search_valid = search.is_search_result_valid(search_results, search_type)
 
     full_context = ""
