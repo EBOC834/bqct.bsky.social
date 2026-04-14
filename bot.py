@@ -19,7 +19,7 @@ async def process_item(client, item, llm):
     print(f"Processing: {user_text[:30]}...", flush=True)
 
     rec = await bsky.get_record(client, uri)
-    if not rec: 
+    if not rec:
         print("Warning: Record not found, skipping.", flush=True)
         return
 
@@ -44,9 +44,11 @@ async def process_item(client, item, llm):
             search_valid = search.is_search_result_valid(search_results, search_type)
 
     full_context = ""
-    if persisted_context: full_context += f"Thread Summary:\n{persisted_context}\n\n"
+    if persisted_context:
+        full_context += f"Thread Summary:\n{persisted_context}\n\n"
     full_context += f"Recent Context:\n{fresh_context}\n"
-    if search_valid: full_context += f"Search Results:\n{search_results}\n"
+    if search_valid:
+        full_context += f"Search Results:\n{search_results}\n"
 
     final_prompt = (
         f"  system\n{prompts.ANSWER_SYSTEM}\n"
@@ -54,7 +56,7 @@ async def process_item(client, item, llm):
         f"  assistant\n"
     )
     reply = generator.generate(llm, final_prompt, stop=["  user", "  system", "  assistant"])
-    reply = generator.format_reply(reply, do_search, search_valid, search_type)
+    reply = generator.format_reply(reply, do_search, search_type)
     print(f"Reply: {reply}", flush=True)
 
     try:
@@ -73,12 +75,12 @@ async def process_item(client, item, llm):
             print(f"Memory update failed: {e}", flush=True)
 
 async def main():
-    if not os.path.exists("work_data.json"): 
+    if not os.path.exists("work_data.json"):
         print("No work_data.json", flush=True)
         return
-    with open("work_data.json", "r") as f: 
+    with open("work_data.json", "r") as f:
         work_data = json.load(f)
-    if not work_data.get("items"): 
+    if not work_data.get("items"):
         print("Empty queue.", flush=True)
         return
 
