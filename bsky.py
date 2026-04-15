@@ -60,6 +60,14 @@ async def get_record(client, uri: str):
     r = await client.get("/xrpc/com.atproto.repo.getRecord", params={"repo": did, "collection": collection, "rkey": rkey})
     return r.json() if r.status_code == 200 else None
 
+async def get_thread_raw(client, root_uri: str, token: str):
+    r = await client.get(
+        f"https://bsky.social/xrpc/app.bsky.feed.getPostThread?uri={root_uri}&depth=100",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=60
+    )
+    return r.json() if r.status_code == 200 else None
+
 async def post_record(client, bot_did, text, reply_obj=None):
     created_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     record = {"$type": "app.bsky.feed.post", "text": text, "createdAt": created_at}
