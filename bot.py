@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+from datetime import datetime, timezone, timedelta
 
 import config
 import memory
@@ -12,6 +13,41 @@ import prompts
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 BOT_DID = os.getenv("BOT_DID")
+
+def _is_time_for_daily_post():
+    now_utc = datetime.now(timezone.utc)
+    now_est = now_utc.astimezone(timezone(timedelta(hours=-5)))
+    if now_est.hour < 18:
+        return False
+    today = now_est.strftime("%Y-%m-%d")
+    last_post = memory.load_daily_post_date()
+    if last_post and last_post.get("date") == today:
+        return False
+    return True, today
+
+async def _post_daily_trends(client, llm):
+    print("[DEBUG] Posting daily trends...", flush=True)
+    trends = await search.chainbase_search("")
+    if not trends or "No specific trends" in trends or "Error" in trends:
+        print("[DEBUG] No trends found, skipping daily post", flush=True)
+        return False
+    
+    lines = [l.strip() for l in trends.split("\n") if l.strip().startswith("- ")][:3]
+    if len(lines) < 3:
+        print("[DEBUG] Less than 3 trends found, skipping", flush=True)
+        return False
+    
+    post_text = "Top 3 crypto trends today:\n" + "\n".join(lines) + "\n\nQwen | Chainbase"
+    if len(post_text) > 300:
+        post_text = post_text[:297] + "..."
+    
+    try:
+        await bsky.post_root(client, BOT_DID, post_text)
+        print(f"[DEBUG] Daily post published: {post_text[:50]}...", flush=True)
+        return True
+    except Exception as e:
+        print(f"[DEBUG] Daily post failed: {e}", flush=True)
+        return False
 
 async def process_item(client, item, llm):
     uri, user_text = item["uri"], item["text"]
@@ -129,6 +165,14 @@ async def main():
     async with bsky.get_client() as client:
         try:
             await bsky.login(client, BOT_HANDLE, BOT_PASSWORD)
+            
+            daily_result = _is_time_for_daily_post()
+            if isinstance(daily_result, tuple) and daily_result[0]:
+                _, today_date = daily_result
+                if await _post_daily_trends(client, llm):
+                    memory.save_daily_post_date(today_date)
+                    print(f"[DEBUG] Daily post date saved: {today_date}", flush=True)
+            
             for item in work_data["items"]:
                 await process_item(client, item, llm)
                 await asyncio.sleep(1)
