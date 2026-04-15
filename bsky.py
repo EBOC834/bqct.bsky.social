@@ -154,38 +154,18 @@ async def get_thread_context(client, root_uri: str) -> List[Dict]:
     await collect_nodes(data.get("thread", {}), depth=0)
     return all_nodes
 
-def _calculate_priority(node: Dict, bot_handle: str, owner_did: Optional[str] = None) -> int:
-    if node.get("is_root"):
-        return 10
-    if node.get("is_sequential"):
-        return 8
-    if node["did"] == owner_did:
-        return 6
-    if node["handle"] == bot_handle:
-        return 4
-    return 2
-
-def filter_and_select(posts: List[Dict], bot_handle: str, owner_did: Optional[str] = None, limit: int = 15) -> List[Dict]:
+def filter_and_select(posts: List[Dict], bot_handle: str, owner_did: Optional[str] = None, limit: int = 10) -> List[Dict]:
     if not posts:
         return []
     
     root_post = posts[0]
     other_posts = posts[1:]
     
-    scored = [(p, _calculate_priority(p, bot_handle, owner_did)) for p in other_posts]
-    scored.sort(key=lambda x: (-x[1], x[0]["uri"]))
+    other_posts.sort(key=lambda p: p["uri"].split("/")[-1], reverse=True)
+    selected_others = other_posts[:limit]
+    selected_others.sort(key=lambda p: p["uri"].split("/")[-1])
     
-    seen, valid = {root_post.get("text", "").strip()}, [root_post]
-    for post, priority in scored:
-        txt = post.get("text", "").strip()
-        if priority >= 6 or (len(txt) >= 5 and txt not in seen):
-            seen.add(txt)
-            valid.append(post)
-            if len(valid) >= limit:
-                break
-    
-    valid.sort(key=lambda p: p["uri"].split("/")[-1])
-    return valid
+    return [root_post] + selected_others
 
 def format_context(selected: List[Dict], bot_handle: str) -> tuple:
     lines, all_alts = [], []
