@@ -76,7 +76,10 @@ def load_daily_post_date():
     if not raw:
         return None
     try:
-        return json.loads(raw)
+        data = json.loads(raw)
+        if not data:
+            return None
+        return data
     except:
         return None
 
