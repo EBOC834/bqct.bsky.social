@@ -125,66 +125,57 @@ def _extract_embed_full(embed: Optional[Dict]) -> tuple:
     
     return " ".join(p for p in parts if p), alts
 
+async def extract_link_metadata(url: str) -> Dict[str, str]:
+    try:
+        async with httpx.AsyncClient() as c:
+            r = await c.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+            if r.status_code == 200:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(r.text, 'html.parser')
+                title = soup.find('meta', property='og:title')
+                desc = soup.find('meta', property='og:description')
+                return {
+                    "title": title.get('content', '') if title else '',
+                    "description": desc.get('content', '') if desc else ''
+                }
+    except:
+        pass
+    return {"title": "", "description": ""}
+
 async def get_thread_context(client, root_uri: str) -> List[Dict]:
-    parts = root_uri.split("/")
-    if len(parts) < 5:
-        return []
-    did, collection, rkey = parts[2], parts[3], parts[4]
-    
-    r = await client.get(
-        "/xrpc/com.atproto.feed.getPostThread",
-        params={"uri": root_uri, "depth": 100, "parentHeight": 50},
-        timeout=60
-    )
-    if r.status_code != 200:
+    rec = await get_record(client, root_uri)
+    if not rec or "value" not in rec:
         return []
     
-    data = r.json()
-    all_nodes = []
+    post = rec.get("value", {})
+    author = rec.get("author", {})
     
-    def collect_nodes(node, parent_uri=None, depth=0):
-        if not node:
-            return
-        node_type = node.get("$type", "")
-        if node_type == "app.bsky.feed.defs#notFoundPost" or node_type == "app.bsky.feed.defs#blockedPost":
-            return
-        post = node.get("post", {})
-        if not post:
-            return
-        record = post.get("record", {})
-        if not record:
-            return
-        
-        node_uri = post.get("uri")
-        author = post.get("author", {})
-        post_did = author.get("did", "")
-        handle = author.get("handle", post_did.split(":")[-1] if ":" in post_did else "unknown")
-        txt = record.get("text", "")
-        
-        embed = record.get("embed")
-        embed_text, alts = _extract_embed_full(embed)
-        
-        all_nodes.append({
-            "uri": node_uri,
-            "parent_uri": parent_uri,
-            "did": post_did,
-            "handle": handle,
-            "text": txt,
-            "embed": embed_text,
-            "alts": alts,
-            "is_root": (depth == 0),
-            "is_sequential": _is_sequential_thread_post(txt)
-        })
-        
-        replies = node.get("replies", [])
-        if isinstance(replies, list):
-            for reply_node in replies:
-                if isinstance(reply_node, dict):
-                    collect_nodes(reply_node, node_uri, depth + 1)
+    txt = post.get("text", "")
     
-    thread = data.get("thread", {})
-    collect_nodes(thread, depth=0)
-    return all_nodes
+    if "http" in txt:
+        urls = re.findall(r'https?://[^\s]+', txt)
+        if urls:
+            lm = await extract_link_metadata(urls[0])
+            if lm["title"]:
+                txt = f"{txt}\n[Linked: {lm['title']}]"
+    
+    embed = post.get("embed")
+    embed_text, alts = _extract_embed_full(embed)
+    
+    if alts:
+        txt = f"{txt}\n[HINT from image alt: {'; '.join(alts)}]"
+    
+    return [{
+        "uri": root_uri,
+        "parent_uri": None,
+        "did": author.get("did", ""),
+        "handle": author.get("handle", ""),
+        "text": txt,
+        "embed": embed_text,
+        "alts": alts,
+        "is_root": True,
+        "is_sequential": False
+    }]
 
 def filter_and_select(posts: List[Dict], bot_handle: str, owner_did: Optional[str] = None, limit: int = 10) -> List[Dict]:
     if not posts:
