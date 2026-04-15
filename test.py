@@ -19,6 +19,7 @@ POST_URI = os.getenv("POST_URI")
 TEST_QUESTION = os.getenv("TEST_QUESTION", "").strip()
 USE_TAVILY = os.getenv("USE_TAVILY", "false").lower() == "true"
 USE_CHAINBASE = os.getenv("USE_CHAINBASE", "false").lower() == "true"
+TEST_RAW_LOGS = os.getenv("TEST_RAW_LOGS", "false").lower() == "true"
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 BOT_DID = os.getenv("BOT_DID")
@@ -55,6 +56,7 @@ async def main():
     print(f"[TEST] Starting isolated run for: {POST_URI}")
     print(f"[TEST] Question: '{TEST_QUESTION}'" if TEST_QUESTION else "[TEST] Question: (none)")
     print(f"[TEST] Sources: tavily={USE_TAVILY}, chainbase={USE_CHAINBASE}")
+    print(f"[TEST] Raw logs: {TEST_RAW_LOGS}")
     print("[TEST] Mode: DRY-RUN (No posts, No LAST_PROCESSED update)")
 
     async with bsky.get_client() as client:
@@ -77,6 +79,9 @@ async def main():
             print(f"[TEST] ERROR: Record not found for URI: {normalized_uri}")
             sys.exit(1)
 
+        if TEST_RAW_LOGS:
+            print(f"[TEST_RAW] Record JSON:\n{json.dumps(rec, indent=2, ensure_ascii=False)}\n")
+
         user_text = rec["value"].get("text", "")
         reply_info = rec["value"].get("reply", {})
         root_uri = reply_info.get("root", {}).get("uri", normalized_uri)
@@ -86,6 +91,19 @@ async def main():
 
         print(f"[TEST] User text: {user_text[:200]}...")
         print(f"[TEST] Root URI: {root_uri}")
+
+        parts = root_uri.split("/")
+        did, collection, rkey = parts[2], parts[3], parts[4]
+        thread_api_url = f"/xrpc/com.atproto.feed.getPostThread?uri={root_uri}&depth=100&parentHeight=50"
+        
+        r = await client.get(thread_api_url, timeout=60)
+        
+        if TEST_RAW_LOGS:
+            print(f"[TEST_RAW] getPostThread URL: {bsky.BASE_URL}{thread_api_url}")
+            print(f"[TEST_RAW] getPostThread Status: {r.status_code}")
+            if r.status_code == 200:
+                thread_data = r.json()
+                print(f"[TEST_RAW] getPostThread Response (first 2000 chars):\n{json.dumps(thread_data, indent=2, ensure_ascii=False)[:2000]}...\n")
 
         thread_context = await bsky.get_context_string(client, root_uri, BOT_HANDLE, owner_did=OWNER_DID)
         print(f"[TEST] Thread Context Length: {len(thread_context)}")
@@ -127,10 +145,17 @@ async def main():
                 supported = provider.get("supports", [])
                 kwargs = {k: v for k, v in search_params.items() if k in supported}
                 kwargs.pop('query', None)
+                
+                if TEST_RAW_LOGS and search_type == "tavily":
+                    print(f"[TEST_RAW] Tavily Payload:\n{json.dumps({'query': search_params['query'], 'search_depth': 'basic', 'include_answer': True, 'include_raw_content': True, 'max_results': 5, **kwargs}, indent=2)}\n")
+                
                 search_results = await func(search_params["query"], **kwargs)
                 search_valid = search.is_search_result_valid(search_results, search_type)
                 print(f"[TEST] Search Valid: {search_valid}")
                 print(f"[TEST] Search Results RAW:\n{search_results[:500]}...\n")
+                
+                if TEST_RAW_LOGS:
+                    print(f"[TEST_RAW] Search Results Full:\n{search_results}\n")
         elif has_question and not has_source:
             print("[TEST] Question provided but no source selected — skipping search.")
         elif not has_question:
@@ -151,6 +176,9 @@ async def main():
                 f"  assistant\n"
             )
             print(f"[TEST] FULL PROMPT TO MODEL:\n{debug_prompt}\n")
+            
+            if TEST_RAW_LOGS:
+                print(f"[TEST_RAW] Prompt Tokens (estimated): {len(debug_prompt) // 4}")
 
             llm = generator.get_model()
             reply = generator.get_answer(
@@ -163,6 +191,9 @@ async def main():
                 search_type=search_type
             )
             print(f"[TEST] Generated Reply:\n{reply}\n")
+            
+            if TEST_RAW_LOGS:
+                print(f"[TEST_RAW] Reply Tokens (estimated): {len(reply) // 4}")
 
             print("[TEST] Simulating memory update (TEST_CONTEXT_0)...")
             new_summary = generator.update_summary(llm, persisted_context, TEST_QUESTION, reply)
