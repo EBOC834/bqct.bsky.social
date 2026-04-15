@@ -1,5 +1,6 @@
 import httpx
 import datetime
+import re
 
 BASE_URL = "https://bsky.social"
 
@@ -31,56 +32,112 @@ async def get_thread_context(client, root_uri):
         return []
     data = r.json()
     posts = []
-    def extract(node):
+    def extract(node, depth=0):
         if not node:
             return
         p = node.get("post", {})
+        record = p.get("record", {})
+        text = record.get("text", "")
+        embed = p.get("embed", {})
+        embed_text = _extract_embed_full(embed)
         posts.append({
             "handle": p.get("author", {}).get("handle"),
-            "text": p.get("record", {}).get("text", ""),
-            "embed": p.get("embed"),
-            "cid": p.get("cid", "")
+            "text": text,
+            "embed": embed_text,
+            "cid": p.get("cid", ""),
+            "is_root": (depth == 0)
         })
         for reply in node.get("replies", []):
-            extract(reply)
-    extract(data.get("thread", {}))
+            extract(reply, depth + 1)
+    extract(data.get("thread", {}), depth=0)
     return posts
 
-def extract_embed_text(post):
+def _extract_embed_full(embed):
+    """Extract ALL embed data: links, images, quotes, video"""
     parts = []
-    embed = post.get("embed", {})
-    if embed.get("$type") == "app.bsky.embed.images":
-        for img in embed.get("images", []):
+    if not embed:
+        return ""
+    
+    embed_type = embed.get("$type", "")
+    
+    if embed_type == "app.bsky.embed.images":
+        for i, img in enumerate(embed.get("images", []), 1):
             alt = img.get("alt", "").strip()
             if alt:
-                parts.append(f"[Image: {alt}]")
-    elif embed.get("$type") == "app.bsky.embed.external":
+                parts.append(f"[Image {i}: {alt}]")
+            else:
+                parts.append(f"[Image {i}]")
+    
+    elif embed_type == "app.bsky.embed.external":
         ext = embed.get("external", {})
-        if ext.get("title"):
-            parts.append(f"[Link: {ext['title']}]")
-        if ext.get("description"):
-            parts.append(f"[Desc: {ext['description'][:100]}]")
-    elif embed.get("$type") == "app.bsky.embed.record":
+        title = ext.get("title", "").strip()
+        desc = ext.get("description", "").strip()
+        uri = ext.get("uri", "").strip()
+        if title:
+            parts.append(f"[Link: {title}]")
+        if desc:
+            parts.append(f"[Desc: {desc[:150]}]")
+        if uri and not uri.startswith("https://bsky.app"):
+            parts.append(f"[URL: {uri}]")
+    
+    elif embed_type == "app.bsky.embed.record":
         rec = embed.get("record", {})
-        if rec.get("text"):
-            parts.append(f"[Quote: {rec['text'][:100]}]")
-    return " ".join(parts)
+        rec_type = rec.get("$type", "")
+        if rec_type == "app.bsky.feed.post":
+            val = rec.get("value", {})
+            quote_text = val.get("text", "")[:150]
+            quote_author = rec.get("author", {}).get("handle", "")
+            if quote_text:
+                parts.append(f"[Quote @{quote_author}: {quote_text}]")
+        elif rec.get("title"):
+            parts.append(f"[Record: {rec.get('title')}]")
+    
+    elif embed_type == "app.bsky.embed.video":
+        video = embed.get("video", {})
+        alt = video.get("alt", "").strip()
+        if alt:
+            parts.append(f"[Video: {alt}]")
+        else:
+            parts.append("[Video]")
+    
+    elif embed_type == "app.bsky.embed.recordWithMedia":
+        media = embed.get("media", {})
+        record = embed.get("record", {})
+        parts.append(_extract_embed_full(media))
+        parts.append(_extract_embed_full({"$type": "app.bsky.embed.record", "record": record}))
+    
+    return " ".join(p for p in parts if p)
 
 def filter_and_select(posts, bot_handle, limit=8):
-    seen, valid = set(), []
-    for p in posts:
+    if not posts:
+        return []
+    
+    root_post = posts[0]
+    other_posts = posts[1:]
+    
+    seen, valid = set(), [root_post]
+    root_text = root_post.get("text", "").strip()
+    if root_text:
+        seen.add(root_text)
+    
+    for p in other_posts:
         t = p.get("text", "").strip()
         if len(t) >= 5 and t not in seen:
             seen.add(t)
             valid.append(p)
-    return valid if len(valid) <= limit else [valid[0]] + valid[-(limit-1):]
+    
+    if len(valid) > limit:
+        return [valid[0]] + valid[-(limit-1):]
+    return valid
 
 def format_context(selected, bot_handle):
     lines = []
-    for p in selected:
-        marker = " [BOT]" if p.get("handle") == bot_handle else ""
-        embed = extract_embed_text(p)
-        line = f"@{p.get('handle', 'unknown')}{marker}: {p.get('text', '')}"
+    for i, p in enumerate(selected):
+        is_root = p.get("is_root", False)
+        marker = " [ROOT]" if is_root else (" [BOT]" if p.get("handle") == bot_handle else "")
+        embed = p.get("embed", "")
+        text = p.get("text", "")
+        line = f"@{p.get('handle', 'unknown')}{marker}: {text}"
         if embed:
             line += f" {embed}"
         lines.append(line)
@@ -95,13 +152,6 @@ async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, pare
     if not root_uri or not parent_uri:
         raise ValueError("Missing required URI for reply")
     
-    print(f"[DEBUG] post_reply called:", flush=True)
-    print(f"  - root_uri: {root_uri}", flush=True)
-    print(f"  - root_cid: {root_cid[:20] if root_cid else 'EMPTY'}", flush=True)
-    print(f"  - parent_uri: {parent_uri}", flush=True)
-    print(f"  - parent_cid: {parent_cid[:20] if parent_cid else 'EMPTY'}", flush=True)
-    
-    # Build reply object: if root_cid missing but parent_cid exists, use parent as root too
     reply_obj = None
     if parent_cid:
         effective_root_uri = root_uri if root_cid else parent_uri
@@ -110,7 +160,6 @@ async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, pare
             "root": {"uri": effective_root_uri, "cid": effective_root_cid},
             "parent": {"uri": parent_uri, "cid": parent_cid}
         }
-        print(f"[DEBUG] Reply object: root={effective_root_uri}, parent={parent_uri}", flush=True)
     
     created_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     
@@ -127,13 +176,6 @@ async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, pare
         "collection": "app.bsky.feed.post",
         "record": record
     }
-    
-    print(f"[DEBUG] Posting to: /xrpc/com.atproto.repo.createRecord", flush=True)
     r = await client.post("/xrpc/com.atproto.repo.createRecord", json=payload)
-    print(f"[DEBUG] Post response: status={r.status_code}", flush=True)
-    if r.status_code == 200:
-        result = r.json()
-        print(f"[DEBUG] Posted URI: {result.get('uri')}", flush=True)
-        return result
     r.raise_for_status()
     return r.json()
