@@ -70,3 +70,19 @@ def save_context(thread_id, content):
         _write_secret(f"CONTEXT_{target_idx}", payload)
     except:
         pass
+
+def load_daily_post_date():
+    raw = os.getenv("DAILY_POST_DATE", "")
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except:
+        return None
+
+def save_daily_post_date(date_str):
+    payload = json.dumps({"date": date_str, "ts": int(time.time())}, ensure_ascii=False)
+    try:
+        _write_secret("DAILY_POST_DATE", payload)
+    except:
+        pass
