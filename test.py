@@ -7,6 +7,7 @@ import re
 import base64
 from nacl import encoding, public
 from bs4 import BeautifulSoup
+from trafilatura import extract as trafilatura_extract
 
 import config
 import context as context_module
@@ -28,6 +29,19 @@ BOT_DID = os.getenv("BOT_DID")
 OWNER_DID = os.getenv("OWNER_DID")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
+async def _extract_clean_url_content(url):
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as c:
+            r = await c.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+            if r.status_code == 200:
+                html = r.text
+                content = trafilatura_extract(html, include_tables=False, include_comments=False, output_format="txt")
+                if content:
+                    return content[:400].strip()
+    except:
+        pass
+    return None
+
 async def _extract_link_metadata(url):
     try:
         async with httpx.AsyncClient(follow_redirects=True) as c:
@@ -41,6 +55,9 @@ async def _extract_link_metadata(url):
         pass
     return {"title": "", "description": ""}
 
+def _extract_urls_from_text(text):
+    return re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', text)
+
 async def _fetch_full_thread_context(client, root_uri, token):
     r = await client.get(
         f"https://bsky.social/xrpc/app.bsky.feed.getPostThread?uri={root_uri}&depth=100",
@@ -53,6 +70,7 @@ async def _fetch_full_thread_context(client, root_uri, token):
     data = r.json()
     all_nodes = []
     quoted_cache = {}
+    link_cache = {}
 
     async def collect_nodes(node, parent_uri=None):
         if not node:
@@ -70,6 +88,8 @@ async def _fetch_full_thread_context(client, root_uri, token):
         txt = record.get("text", "")
         embed = record.get("embed")
         alts = []
+        link_hints = []
+
         if embed and isinstance(embed, dict):
             etype = embed.get("$type", "")
             if etype == "app.bsky.embed.record":
@@ -115,9 +135,34 @@ async def _fetch_full_thread_context(client, root_uri, token):
                         alts.append(f"@{handle} image: {img['alt']}")
             elif etype == "app.bsky.embed.external":
                 ext = embed.get("external", {})
-                if isinstance(ext, dict) and ext.get("alt"):
-                    alts.append(f"Link: {ext['alt']}")
-        all_nodes.append({"handle": handle, "text": txt, "alts": alts, "is_root": (parent_uri is None)})
+                title = ext.get("title", "").strip()
+                desc = ext.get("description", "").strip()
+                uri = ext.get("uri", "").strip()
+                if title:
+                    link_hints.append(f"[Embed Link: {title}]")
+                if desc:
+                    link_hints.append(f"[Desc: {desc[:150]}]")
+                if uri and uri not in link_cache:
+                    clean = await _extract_clean_url_content(uri)
+                    if clean:
+                        link_cache[uri] = clean
+                        link_hints.append(f"[Page content: {clean}]")
+                    link_cache[uri] = link_cache.get(uri, "[Page fetch failed]")
+
+        for url in _extract_urls_from_text(txt):
+            if url not in link_cache:
+                clean = await _extract_clean_url_content(url)
+                if clean:
+                    link_cache[url] = clean
+                    link_hints.append(f"[Linked page: {clean}]")
+                else:
+                    lm = await _extract_link_metadata(url)
+                    if lm.get("title"):
+                        link_hints.append(f"[Linked: {lm['title']}]")
+                link_cache[url] = link_cache.get(url, "[Fetch failed]")
+
+        all_nodes.append({"handle": handle, "text": txt, "alts": alts, "link_hints": link_hints, "is_root": (parent_uri is None)})
+
         for reply_node in node.get("replies", []):
             if isinstance(reply_node, dict):
                 await collect_nodes(reply_node, node_uri)
@@ -128,15 +173,11 @@ async def _fetch_full_thread_context(client, root_uri, token):
     all_alts = []
     for node in all_nodes:
         marker = " [ROOT]" if node["is_root"] else ""
-        lines.append(f"@{node['handle']}{marker}: {node['text']}")
+        line = f"@{node['handle']}{marker}: {node['text']}"
+        if node["link_hints"]:
+            line += " " + " ".join(node["link_hints"])
+        lines.append(line)
         all_alts.extend(node["alts"])
-
-    if all_nodes and "http" in all_nodes[0]["text"]:
-        urls = re.findall(r'https?://[^\s]+', all_nodes[0]["text"])
-        if urls:
-            lm = await _extract_link_metadata(urls[0])
-            if lm.get("title"):
-                lines[0] += f" [Linked: {lm['title']}]"
 
     if all_alts:
         lines.append(f"\n[HINT from image alt: {'; '.join(list(set(all_alts)))}]")
