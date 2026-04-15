@@ -90,6 +90,49 @@ async def _extract_clean_url_content(url: str) -> Optional[str]:
 def _extract_urls_from_text(text: str) -> List[str]:
     return re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', text)
 
+def parse_bluesky_post(raw_record: Dict) -> Dict:
+    if not raw_record or "value" not in raw_record:
+        return {}
+    post = raw_record.get("value", {})
+    author = raw_record.get("author", {})
+    txt = post.get("text", "")
+    embed = post.get("embed")
+    embed_text, alts = _extract_embed_full(embed)
+    link_hints = []
+    if "http" in txt:
+        urls = re.findall(r'https?://[^\s]+', txt)
+        if urls:
+            lm = _extract_link_metadata_sync(urls[0])
+            if lm.get("title"):
+                link_hints.append(f"[Linked: {lm['title']}]")
+    return {
+        "uri": raw_record.get("uri", ""),
+        "did": author.get("did", ""),
+        "handle": author.get("handle", ""),
+        "text": txt,
+        "embed": embed_text,
+        "alts": alts,
+        "link_hints": link_hints,
+        "is_root": False,
+        "is_sequential": _is_sequential_thread_post(txt),
+        "cid": raw_record.get("cid", "")
+    }
+
+def _extract_link_metadata_sync(url: str) -> Dict[str, str]:
+    try:
+        import urllib.request
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            if r.status == 200:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(r.read(), 'html.parser')
+                t = soup.find('meta', property='og:title')
+                d = soup.find('meta', property='og:description')
+                return {"title": t.get('content', '') if t else '', "description": d.get('content', '') if d else ''}
+    except:
+        pass
+    return {"title": "", "description": ""}
+
 async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
     all_nodes = []
     quoted_cache = {}
