@@ -95,12 +95,22 @@ async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, pare
     if not root_uri or not parent_uri:
         raise ValueError("Missing required URI for reply")
     
+    print(f"[DEBUG] post_reply called:", flush=True)
+    print(f"  - root_uri: {root_uri}", flush=True)
+    print(f"  - root_cid: {root_cid[:20] if root_cid else 'EMPTY'}", flush=True)
+    print(f"  - parent_uri: {parent_uri}", flush=True)
+    print(f"  - parent_cid: {parent_cid[:20] if parent_cid else 'EMPTY'}", flush=True)
+    
+    # Build reply object: if root_cid missing but parent_cid exists, use parent as root too
     reply_obj = None
-    if root_cid and parent_cid:
+    if parent_cid:
+        effective_root_uri = root_uri if root_cid else parent_uri
+        effective_root_cid = root_cid if root_cid else parent_cid
         reply_obj = {
-            "root": {"uri": root_uri, "cid": root_cid},
+            "root": {"uri": effective_root_uri, "cid": effective_root_cid},
             "parent": {"uri": parent_uri, "cid": parent_cid}
         }
+        print(f"[DEBUG] Reply object: root={effective_root_uri}, parent={parent_uri}", flush=True)
     
     created_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     
@@ -117,6 +127,13 @@ async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, pare
         "collection": "app.bsky.feed.post",
         "record": record
     }
+    
+    print(f"[DEBUG] Posting to: /xrpc/com.atproto.repo.createRecord", flush=True)
     r = await client.post("/xrpc/com.atproto.repo.createRecord", json=payload)
+    print(f"[DEBUG] Post response: status={r.status_code}", flush=True)
+    if r.status_code == 200:
+        result = r.json()
+        print(f"[DEBUG] Posted URI: {result.get('uri')}", flush=True)
+        return result
     r.raise_for_status()
     return r.json()
