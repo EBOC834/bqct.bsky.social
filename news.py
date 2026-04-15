@@ -6,32 +6,50 @@ import bsky
 
 BOT_DID = os.getenv("BOT_DID")
 
-def should_post_news():
+def _should_post_news():
     now_utc = datetime.now(timezone.utc)
-    last_ts_str = os.getenv("LAST_NEWS", "").strip()
-    if not last_ts_str:
-        return True
+    raw = os.getenv("LAST_NEWS", "").strip()
+    print(f"[NEWS] LAST_NEWS value: '{raw}'")
+    if not raw or raw == "{}" or raw == "null":
+        print("[NEWS] Empty or invalid. Allowing digest.")
+        return True, now_utc.isoformat()
     try:
-        last_ts = datetime.fromisoformat(last_ts_str.replace("Z", "+00:00"))
+        last_ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         diff = now_utc - last_ts
-        return diff.total_seconds() >= 6 * 3600
-    except:
-        return True
+        hours = diff.total_seconds() / 3600
+        if hours >= 6:
+            print(f"[NEWS] {hours:.1f}h passed. Allowing digest.")
+            return True, now_utc.isoformat()
+        print(f"[NEWS] {hours:.1f}h passed. Skipping.")
+        return False, raw
+    except Exception as e:
+        print(f"[NEWS] Parse error: {e}. Allowing digest.")
+        return True, now_utc.isoformat()
 
 async def post_news_if_due(client):
+    should_post, new_ts = _should_post_news()
+    if not should_post:
+        return False
+    print("[NEWS] Fetching Chainbase trends...")
     trends = await search.chainbase_search("")
+    print(f"[NEWS] Trends response length: {len(trends) if trends else 0}")
     if not trends or "No specific trends" in trends or "Error" in trends:
+        print("[NEWS] Invalid trends data. Skipping.")
         return False
     lines = [l.strip() for l in trends.split("\n") if l.strip().startswith("- ")][:3]
+    print(f"[NEWS] Parsed {len(lines)} trend lines.")
     if len(lines) < 3:
+        print(f"[NEWS] Less than 3 trends. Skipping. Raw: {trends[:200]}")
         return False
     post_text = "Top 3 crypto trends:\n" + "\n".join(lines) + "\n\nQwen | Chainbase 💜💛"
     if len(post_text) > 300:
         post_text = post_text[:297] + "..."
     try:
+        print("[NEWS] Posting to Bluesky...")
         await bsky.post_root(client, BOT_DID, post_text)
-        now_utc = datetime.now(timezone.utc).isoformat()
-        context_module.save_daily_post_ts(now_utc)
+        context_module.save_daily_post_ts(new_ts)
+        print(f"[NEWS] Posted successfully. LAST_NEWS set to {new_ts}")
         return True
-    except:
+    except Exception as e:
+        print(f"[NEWS] Post failed: {e}")
         return False
