@@ -240,3 +240,21 @@ async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, pare
     r = await client.post("/xrpc/com.atproto.repo.createRecord", json=payload)
     r.raise_for_status()
     return r.json()
+
+async def post_root(client, bot_did, text):
+    created_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    
+    record = {
+        "$type": "app.bsky.feed.post",
+        "text": text,
+        "createdAt": created_at
+    }
+    
+    payload = {
+        "repo": bot_did,
+        "collection": "app.bsky.feed.post",
+        "record": record
+    }
+    r = await client.post("/xrpc/com.atproto.repo.createRecord", json=payload)
+    r.raise_for_status()
+    return r.json()
