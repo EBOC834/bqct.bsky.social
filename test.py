@@ -3,11 +3,13 @@ import sys
 import json
 import asyncio
 import httpx
+import re
 import base64
 from nacl import encoding, public
+from bs4 import BeautifulSoup
 
 import config
-import memory
+import context
 import search
 import generator
 import bsky
@@ -47,6 +49,68 @@ def _write_test_secret(name, value):
     payload = {"encrypted_value": encrypted_value, "key_id": key_data["key_id"]}
     r = httpx.put(url, headers=headers, json=payload, timeout=15)
     r.raise_for_status()
+
+async def _extract_full_post_context(rec):
+    if not rec or "value" not in rec:
+        return ""
+    post = rec.get("value", {})
+    author = rec.get("author", {})
+    txt = post.get("text", "")
+    embed = post.get("embed", {})
+    embed_parts = []
+    alts = []
+
+    if embed:
+        etype = embed.get("$type", "")
+        if etype == "app.bsky.embed.external":
+            ext = embed.get("external", {})
+            title = ext.get("title", "").strip()
+            desc = ext.get("description", "").strip()
+            uri = ext.get("uri", "").strip()
+            if title:
+                embed_parts.append(f"[Link: {title}]")
+            if desc:
+                embed_parts.append(f"[Desc: {desc[:150]}]")
+            if uri and not uri.startswith("https://bsky.app"):
+                embed_parts.append(f"[URL: {uri}]")
+        elif etype == "app.bsky.embed.images":
+            for i, img in enumerate(embed.get("images", []), 1):
+                alt = img.get("alt", "").strip()
+                if alt:
+                    alts.append(f"Image {i}: {alt}")
+                    embed_parts.append(f"[Image {i}: {alt}]")
+                else:
+                    embed_parts.append(f"[Image {i}]")
+        elif etype == "app.bsky.embed.record":
+            rec_ref = embed.get("record", {})
+            if rec_ref.get("$type") == "app.bsky.feed.post":
+                val = rec_ref.get("value", {})
+                quote = val.get("text", "")[:150]
+                q_author = rec_ref.get("author", {}).get("handle", "")
+                if quote:
+                    embed_parts.append(f"[Quote @{q_author}: {quote}]")
+
+    if "http" in txt:
+        urls = re.findall(r'https?://[^\s]+', txt)
+        if urls:
+            async with httpx.AsyncClient(follow_redirects=True) as c:
+                r = await c.get(urls[0], headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+                if r.status_code == 200:
+                    soup = BeautifulSoup(r.text, 'html.parser')
+                    og_title = soup.find('meta', property='og:title')
+                    og_desc = soup.find('meta', property='og:description')
+                    t = og_title.get('content', '').strip() if og_title else ''
+                    d = og_desc.get('content', '').strip() if og_desc else ''
+                    if t:
+                        txt = f"{txt}\n[Linked: {t}]"
+
+    if alts:
+        txt = f"{txt}\n[HINT from image alt: {'; '.join(alts)}]"
+    if embed_parts:
+        txt = f"{txt} {' '.join(embed_parts)}"
+
+    handle = author.get("handle", "")
+    return f"@{handle} [ROOT]: {txt}"
 
 async def main():
     if not POST_URI:
@@ -95,19 +159,14 @@ async def main():
         print("[STEP 1] FETCHING THREAD CONTEXT FROM BLUESKY")
         print("=" * 60)
         
-        thread_context = await bsky.get_context_string(client, root_uri, BOT_HANDLE, owner_did=OWNER_DID)
+        root_rec = await bsky.get_record(client, root_uri)
+        thread_context = await _extract_full_post_context(root_rec)
+        
         print(f"[STEP 1] Length: {len(thread_context)} chars")
         print(f"[STEP 1] Content:\n{thread_context if thread_context else '(Empty)'}\n")
 
-        if TEST_RAW_LOGS:
-            parts = root_uri.split("/")
-            did, collection, rkey = parts[2], parts[3], parts[4]
-            thread_api_url = f"/xrpc/com.atproto.feed.getPostThread?uri={root_uri}&depth=100&parentHeight=50"
-            r = await client.get(thread_api_url, timeout=60)
-            print(f"[TEST_RAW] getPostThread Status: {r.status_code}")
-            if r.status_code == 200:
-                thread_data = r.json()
-                print(f"[TEST_RAW] Raw Thread JSON (first 2000 chars):\n{json.dumps(thread_data, indent=2, ensure_ascii=False)[:2000]}...\n")
+        if TEST_RAW_LOGS and root_rec:
+            print(f"[TEST_RAW] Root Record JSON:\n{json.dumps(root_rec, indent=2, ensure_ascii=False)[:1500]}...\n")
 
         print("\n" + "=" * 60)
         print("[STEP 2] LOADING PERSISTED CONTEXT FROM SECRETS")
@@ -126,8 +185,6 @@ async def main():
                     print(f"[STEP 2] Secret Content:\n{persisted_context}\n")
                 else:
                     print(f"[STEP 2] Secret '{secret_name}' exists but thread_id mismatch")
-                    print(f"[STEP 2] Secret Thread ID: {data.get('thread_id')}")
-                    print(f"[STEP 2] Current Thread ID: {thread_id}")
             except Exception as e:
                 print(f"[STEP 2] Error parsing secret: {e}")
         else:
