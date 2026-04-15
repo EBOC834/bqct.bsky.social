@@ -31,4 +31,7 @@ def merge_contexts(root_post: dict, recent_posts: list, memory: str, search_resu
             all_alts.extend(p["alts"])
     if all_alts:
         parts.append(f"\n[Image/Video alts: {'; '.join(set(all_alts))}]")
-    return "\n".join(parts)
+    
+    merged = "\n".join(parts)
+    print(f"[CONTEXT] Merged context length: {len(merged)} chars")
+    return merged
