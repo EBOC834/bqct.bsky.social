@@ -53,11 +53,13 @@ async def main():
         print("[TEST] ERROR: POST_URI not provided.")
         sys.exit(1)
 
-    print(f"[TEST] Starting isolated run for: {POST_URI}")
+    print("=" * 60)
+    print("[TEST] STARTING ISOLATED RUN")
+    print(f"[TEST] URI: {POST_URI}")
     print(f"[TEST] Question: '{TEST_QUESTION}'" if TEST_QUESTION else "[TEST] Question: (none)")
     print(f"[TEST] Sources: tavily={USE_TAVILY}, chainbase={USE_CHAINBASE}")
     print(f"[TEST] Raw logs: {TEST_RAW_LOGS}")
-    print("[TEST] Mode: DRY-RUN (No posts, No LAST_PROCESSED update)")
+    print("=" * 60)
 
     async with bsky.get_client() as client:
         try:
@@ -79,9 +81,6 @@ async def main():
             print(f"[TEST] ERROR: Record not found for URI: {normalized_uri}")
             sys.exit(1)
 
-        if TEST_RAW_LOGS:
-            print(f"[TEST_RAW] Record JSON:\n{json.dumps(rec, indent=2, ensure_ascii=False)}\n")
-
         user_text = rec["value"].get("text", "")
         reply_info = rec["value"].get("reply", {})
         root_uri = reply_info.get("root", {}).get("uri", normalized_uri)
@@ -92,36 +91,59 @@ async def main():
         print(f"[TEST] User text: {user_text[:200]}...")
         print(f"[TEST] Root URI: {root_uri}")
 
-        parts = root_uri.split("/")
-        did, collection, rkey = parts[2], parts[3], parts[4]
-        thread_api_url = f"/xrpc/com.atproto.feed.getPostThread?uri={root_uri}&depth=100&parentHeight=50"
+        # =====================================================================
+        # STEP 1: FETCH THREAD CONTEXT FROM BLUESKY
+        # =====================================================================
+        print("\n" + "=" * 60)
+        print("[STEP 1] FETCHING THREAD CONTEXT FROM BLUESKY")
+        print("=" * 60)
         
-        r = await client.get(thread_api_url, timeout=60)
-        
+        thread_context = await bsky.get_context_string(client, root_uri, BOT_HANDLE, owner_did=OWNER_DID)
+        print(f"[STEP 1] Length: {len(thread_context)} chars")
+        print(f"[STEP 1] Content:\n{thread_context if thread_context else '(Empty)'}\n")
+
         if TEST_RAW_LOGS:
-            print(f"[TEST_RAW] getPostThread URL: {bsky.BASE_URL}{thread_api_url}")
+            parts = root_uri.split("/")
+            did, collection, rkey = parts[2], parts[3], parts[4]
+            thread_api_url = f"/xrpc/com.atproto.feed.getPostThread?uri={root_uri}&depth=100&parentHeight=50"
+            r = await client.get(thread_api_url, timeout=60)
             print(f"[TEST_RAW] getPostThread Status: {r.status_code}")
             if r.status_code == 200:
                 thread_data = r.json()
-                print(f"[TEST_RAW] getPostThread Response (first 2000 chars):\n{json.dumps(thread_data, indent=2, ensure_ascii=False)[:2000]}...\n")
+                print(f"[TEST_RAW] Raw Thread JSON (first 2000 chars):\n{json.dumps(thread_data, indent=2, ensure_ascii=False)[:2000]}...\n")
 
-        thread_context = await bsky.get_context_string(client, root_uri, BOT_HANDLE, owner_did=OWNER_DID)
-        print(f"[TEST] Thread Context Length: {len(thread_context)}")
-        print(f"[TEST] Thread Context RAW:\n{thread_context}\n")
+        # =====================================================================
+        # STEP 2: LOAD PERSISTED CONTEXT FROM SECRETS
+        # =====================================================================
+        print("\n" + "=" * 60)
+        print("[STEP 2] LOADING PERSISTED CONTEXT FROM SECRETS")
+        print("=" * 60)
 
         persisted_context = ""
-        try:
-            raw = os.getenv("TEST_CONTEXT_0", "")
-            if raw:
-                data = json.loads(raw)
+        secret_name = "TEST_CONTEXT_0"
+        raw_secret = os.getenv(secret_name, "")
+        
+        if raw_secret:
+            try:
+                data = json.loads(raw_secret)
                 if data.get("thread_id") == thread_id:
                     persisted_context = data.get("content", "")
-        except:
-            pass
-        print(f"[TEST] Persisted Context Length: {len(persisted_context)}")
-        if persisted_context:
-            print(f"[TEST] Persisted Context RAW:\n{persisted_context[:300]}...\n")
+                    print(f"[STEP 2] Found matching secret '{secret_name}'")
+                    print(f"[STEP 2] Secret Content:\n{persisted_context}\n")
+                else:
+                    print(f"[STEP 2] Secret '{secret_name}' exists but thread_id mismatch")
+                    print(f"[STEP 2] Secret Thread ID: {data.get('thread_id')}")
+                    print(f"[STEP 2] Current Thread ID: {thread_id}")
+            except Exception as e:
+                print(f"[STEP 2] Error parsing secret: {e}")
+        else:
+            print(f"[STEP 2] No secret '{secret_name}' found or empty.")
+        
+        print(f"[STEP 2] Final Persisted Context Length: {len(persisted_context)}")
 
+        # =====================================================================
+        # STEP 3: FETCH SEARCH RESULTS (IF ENABLED)
+        # =====================================================================
         search_results = ""
         search_valid = False
         search_type = None
@@ -130,14 +152,20 @@ async def main():
         has_source = USE_TAVILY or USE_CHAINBASE
 
         if has_question and has_source:
+            print("\n" + "=" * 60)
+            print("[STEP 3] FETCHING SEARCH RESULTS")
+            print("=" * 60)
+
             if USE_TAVILY:
                 search_type = "tavily"
             elif USE_CHAINBASE:
                 search_type = "chainbase"
             
-            print(f"[TEST] Running search ({search_type}) for question: '{TEST_QUESTION}'...")
+            print(f"[STEP 3] Provider: {search_type}")
+            print(f"[STEP 3] Query: '{TEST_QUESTION}'")
+            
             search_params = generator.extract_search_params(generator.get_model(), TEST_QUESTION)
-            print(f"[TEST] Search Params: {search_params}")
+            print(f"[STEP 3] Extracted Params: {search_params}")
             
             provider = search.SEARCH_PROVIDERS.get(search_type)
             if provider:
@@ -151,21 +179,30 @@ async def main():
                 
                 search_results = await func(search_params["query"], **kwargs)
                 search_valid = search.is_search_result_valid(search_results, search_type)
-                print(f"[TEST] Search Valid: {search_valid}")
-                print(f"[TEST] Search Results RAW:\n{search_results[:500]}...\n")
+                
+                print(f"[STEP 3] Valid: {search_valid}")
+                print(f"[STEP 3] Results Length: {len(search_results)}")
+                print(f"[STEP 3] Content:\n{search_results[:500]}{'...' if len(search_results)>500 else ''}\n")
                 
                 if TEST_RAW_LOGS:
-                    print(f"[TEST_RAW] Search Results Full:\n{search_results}\n")
+                    print(f"[TEST_RAW] Full Search Results:\n{search_results}\n")
         elif has_question and not has_source:
-            print("[TEST] Question provided but no source selected — skipping search.")
-        elif not has_question:
-            print("[TEST] No question provided — context-only mode.")
+            print("\n[STEP 3] SKIPPED: Question provided but no source selected.")
+        else:
+            print("\n[STEP 3] SKIPPED: No question or sources enabled.")
+
+        # =====================================================================
+        # STEP 4: ASSEMBLE FINAL CONTEXT & GENERATE REPLY
+        # =====================================================================
+        print("\n" + "=" * 60)
+        print("[STEP 4] ASSEMBLING FINAL CONTEXT & GENERATING REPLY")
+        print("=" * 60)
 
         full_context = ""
         if persisted_context:
-            full_context += f"Thread Summary:\n{persisted_context}\n\n"
+            full_context += f"Thread Summary (Memory):\n{persisted_context}\n\n"
         if thread_context:
-            full_context += f"Thread Context:\n{thread_context}\n\n"
+            full_context += f"Thread Context (Live):\n{thread_context}\n\n"
         if search_results and search_valid:
             full_context += f"Search Results:\n{search_results}\n\n"
 
@@ -175,7 +212,11 @@ async def main():
                 f"  user\n{full_context}User Question:\n{TEST_QUESTION}\n"
                 f"  assistant\n"
             )
-            print(f"[TEST] FULL PROMPT TO MODEL:\n{debug_prompt}\n")
+            
+            print(f"[STEP 4] Final Prompt to Model:")
+            print("-" * 40)
+            print(debug_prompt)
+            print("-" * 40)
             
             if TEST_RAW_LOGS:
                 print(f"[TEST_RAW] Prompt Tokens (estimated): {len(debug_prompt) // 4}")
@@ -190,22 +231,29 @@ async def main():
                 do_search=True,
                 search_type=search_type
             )
-            print(f"[TEST] Generated Reply:\n{reply}\n")
+            
+            print(f"\n[STEP 4] Generated Reply:")
+            print("-" * 40)
+            print(reply)
+            print("-" * 40)
             
             if TEST_RAW_LOGS:
                 print(f"[TEST_RAW] Reply Tokens (estimated): {len(reply) // 4}")
 
-            print("[TEST] Simulating memory update (TEST_CONTEXT_0)...")
+            print("\n[STEP 4] Simulating memory update...")
             new_summary = generator.update_summary(llm, persisted_context, TEST_QUESTION, reply)
             payload = json.dumps({"thread_id": thread_id, "content": new_summary, "ts": 0}, ensure_ascii=False)
             _write_test_secret("TEST_CONTEXT_0", payload)
-            print("[TEST] TEST_CONTEXT_0 secret created/updated.")
+            print("[STEP 4] Secret 'TEST_CONTEXT_0' updated with new summary.")
         else:
-            print("[TEST] Skipping reply generation (no question or no source).")
+            print("[STEP 4] SKIPPED: No question or no source — reply generation disabled.")
+            print("[STEP 4] Context assembly complete. Check logs above.")
 
+        print("\n" + "=" * 60)
+        print("[TEST] FINISHED")
         print("[TEST] Post simulated. Nothing sent to Bluesky.")
         print("[TEST] LAST_PROCESSED not modified.")
-        print("[TEST] SUCCESS. Check logs above for context pipeline verification.")
+        print("=" * 60)
 
 if __name__ == "__main__":
     asyncio.run(main())
