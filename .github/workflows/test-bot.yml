@@ -1,0 +1,47 @@
+name: Test Bot Context Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      POST_URI:
+        description: 'Bluesky Post URI to test (at://...)'
+        required: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      BOT_HANDLE: ${{ secrets.BOT_HANDLE }}
+      BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
+      BOT_DID: ${{ secrets.BOT_DID }}
+      OWNER_DID: ${{ secrets.OWNER_DID }}
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      PAT: ${{ secrets.PAT }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      POST_URI: ${{ github.event.inputs.POST_URI }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install httpx pynacl llama-cpp-python
+          pip install -r requirements.txt 2>/dev/null || true
+
+      - name: Download model (if not cached)
+        run: |
+          mkdir -p models
+          if [ ! -f "models/qwen2.5-coder-14b-instruct-q5_k_m.gguf" ]; then
+            curl -L -o models/qwen2.5-coder-14b-instruct-q5_k_m.gguf \
+              "https://huggingface.co/bartowski/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-14B-Instruct-Q5_K_M.gguf"
+          fi
+
+      - name: Run Test Pipeline
+        run: python test.py
