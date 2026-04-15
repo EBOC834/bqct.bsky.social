@@ -1,6 +1,7 @@
 import httpx
 import datetime
 import re
+from typing import List, Dict, Optional
 
 BASE_URL = "https://bsky.social"
 
@@ -22,41 +23,13 @@ async def get_record(client, uri):
     r = await client.get("/xrpc/com.atproto.repo.getRecord", params={"repo": did, "collection": collection, "rkey": rkey})
     return r.json() if r.status_code == 200 else None
 
-async def get_thread_context(client, root_uri):
-    parts = root_uri.split("/")
-    if len(parts) < 5:
-        return []
-    did, collection, rkey = parts[2], parts[3], parts[4]
-    r = await client.get("/xrpc/com.atproto.feed.getPostThread", params={"uri": root_uri, "depth": 60, "parentHeight": 50})
-    if r.status_code != 200:
-        return []
-    data = r.json()
-    posts = []
-    def extract(node, depth=0):
-        if not node:
-            return
-        p = node.get("post", {})
-        record = p.get("record", {})
-        text = record.get("text", "")
-        embed = p.get("embed", {})
-        embed_text = _extract_embed_full(embed)
-        posts.append({
-            "handle": p.get("author", {}).get("handle"),
-            "text": text,
-            "embed": embed_text,
-            "cid": p.get("cid", ""),
-            "is_root": (depth == 0)
-        })
-        for reply in node.get("replies", []):
-            extract(reply, depth + 1)
-    extract(data.get("thread", {}), depth=0)
-    return posts
+def _is_sequential_thread_post(text: str) -> bool:
+    return bool(re.match(r'^[\s"\']*(\d+)/(\d+)', text) or re.search(r'[\s"\'](\d+)/(\d+)[\s"\']', text[:50]))
 
-def _extract_embed_full(embed):
-    """Extract ALL embed data: links, images, quotes, video"""
-    parts = []
+def _extract_embed_full(embed: Optional[Dict]) -> tuple:
+    parts, alts = [], []
     if not embed:
-        return ""
+        return "", []
     
     embed_type = embed.get("$type", "")
     
@@ -65,6 +38,7 @@ def _extract_embed_full(embed):
             alt = img.get("alt", "").strip()
             if alt:
                 parts.append(f"[Image {i}: {alt}]")
+                alts.append(f"Image {i}: {alt}")
             else:
                 parts.append(f"[Image {i}]")
     
@@ -97,42 +71,125 @@ def _extract_embed_full(embed):
         alt = video.get("alt", "").strip()
         if alt:
             parts.append(f"[Video: {alt}]")
+            alts.append(f"Video: {alt}")
         else:
             parts.append("[Video]")
     
     elif embed_type == "app.bsky.embed.recordWithMedia":
         media = embed.get("media", {})
         record = embed.get("record", {})
-        parts.append(_extract_embed_full(media))
-        parts.append(_extract_embed_full({"$type": "app.bsky.embed.record", "record": record}))
+        media_text, media_alts = _extract_embed_full(media)
+        record_text, _ = _extract_embed_full({"$type": "app.bsky.embed.record", "record": record})
+        if media_text:
+            parts.append(media_text)
+            alts.extend(media_alts)
+        if record_text:
+            parts.append(record_text)
     
-    return " ".join(p for p in parts if p)
+    return " ".join(p for p in parts if p), alts
 
-def filter_and_select(posts, bot_handle, limit=8):
+async def get_thread_context(client, root_uri: str) -> List[Dict]:
+    parts = root_uri.split("/")
+    if len(parts) < 5:
+        return []
+    did, collection, rkey = parts[2], parts[3], parts[4]
+    
+    r = await client.get(
+        "/xrpc/com.atproto.feed.getPostThread",
+        params={"uri": root_uri, "depth": 100, "parentHeight": 50},
+        timeout=60
+    )
+    if r.status_code != 200:
+        return []
+    
+    data = r.json()
+    all_nodes = []
+    quoted_cache = {}
+    
+    async def collect_nodes(node, parent_uri=None, depth=0):
+        if not node:
+            return
+        post = node.get("post", {})
+        record = post.get("record", {})
+        if not record:
+            return
+        
+        node_uri = post.get("uri")
+        author = post.get("author", {})
+        did = author.get("did", "")
+        handle = author.get("handle", did.split(":")[-1] if ":" in did else "unknown")
+        txt = record.get("text", "")
+        
+        embed = record.get("embed")
+        embed_text, alts = _extract_embed_full(embed)
+        
+        if embed and embed.get("$type") in ["app.bsky.embed.record", "app.bsky.embed.recordWithMedia"]:
+            rec_ref = embed.get("record", {})
+            if rec_ref and rec_ref.get("uri"):
+                if rec_ref["uri"] not in quoted_cache:
+                    emb_rec = await get_record(client, rec_ref["uri"])
+                    if emb_rec and "value" in emb_rec:
+                        quoted_cache[rec_ref["uri"]] = emb_rec["value"].get("text", "")[:200]
+                emb_txt = quoted_cache.get(rec_ref["uri"], "")
+                if emb_txt:
+                    emb_author = rec_ref["uri"].split("/")[2] if "/" in rec_ref.get("uri", "") else "unknown"
+                    txt = f"{txt}\n[🔁 @{emb_author}: {emb_txt}]"
+        
+        all_nodes.append({
+            "uri": node_uri,
+            "parent_uri": parent_uri,
+            "did": did,
+            "handle": handle,
+            "text": txt,
+            "embed": embed_text,
+            "alts": alts,
+            "is_root": (depth == 0),
+            "is_sequential": _is_sequential_thread_post(txt)
+        })
+        
+        for reply_node in node.get("replies", []):
+            if isinstance(reply_node, dict):
+                await collect_nodes(reply_node, node_uri, depth + 1)
+    
+    await collect_nodes(data.get("thread", {}), depth=0)
+    return all_nodes
+
+def _calculate_priority(node: Dict, bot_handle: str, owner_did: Optional[str] = None) -> int:
+    if node.get("is_root"):
+        return 10
+    if node.get("is_sequential"):
+        return 8
+    if node["did"] == owner_did:
+        return 6
+    if node["handle"] == bot_handle:
+        return 4
+    return 2
+
+def filter_and_select(posts: List[Dict], bot_handle: str, owner_did: Optional[str] = None, limit: int = 15) -> List[Dict]:
     if not posts:
         return []
     
     root_post = posts[0]
     other_posts = posts[1:]
     
-    seen, valid = set(), [root_post]
-    root_text = root_post.get("text", "").strip()
-    if root_text:
-        seen.add(root_text)
+    scored = [(p, _calculate_priority(p, bot_handle, owner_did)) for p in other_posts]
+    scored.sort(key=lambda x: (-x[1], x[0]["uri"]))
     
-    for p in other_posts:
-        t = p.get("text", "").strip()
-        if len(t) >= 5 and t not in seen:
-            seen.add(t)
-            valid.append(p)
+    seen, valid = {root_post.get("text", "").strip()}, [root_post]
+    for post, priority in scored:
+        txt = post.get("text", "").strip()
+        if priority >= 6 or (len(txt) >= 5 and txt not in seen):
+            seen.add(txt)
+            valid.append(post)
+            if len(valid) >= limit:
+                break
     
-    if len(valid) > limit:
-        return [valid[0]] + valid[-(limit-1):]
+    valid.sort(key=lambda p: p["uri"].split("/")[-1])
     return valid
 
-def format_context(selected, bot_handle):
-    lines = []
-    for i, p in enumerate(selected):
+def format_context(selected: List[Dict], bot_handle: str) -> tuple:
+    lines, all_alts = [], []
+    for p in selected:
         is_root = p.get("is_root", False)
         marker = " [ROOT]" if is_root else (" [BOT]" if p.get("handle") == bot_handle else "")
         embed = p.get("embed", "")
@@ -141,12 +198,16 @@ def format_context(selected, bot_handle):
         if embed:
             line += f" {embed}"
         lines.append(line)
-    return "\n".join(lines)
+        all_alts.extend(p.get("alts", []))
+    return "\n".join(lines), list(set(all_alts))
 
-async def get_context_string(client, uri, bot_handle):
+async def get_context_string(client, uri, bot_handle, owner_did=None):
     posts = await get_thread_context(client, uri)
-    selected = filter_and_select(posts, bot_handle)
-    return format_context(selected, bot_handle)
+    selected = filter_and_select(posts, bot_handle, owner_did)
+    context_str, alts = format_context(selected, bot_handle)
+    if alts:
+        context_str += f"\n\n[Image/Video alts: {'; '.join(alts)}]"
+    return context_str
 
 async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, parent_cid):
     if not root_uri or not parent_uri:
