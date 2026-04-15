@@ -59,16 +59,12 @@ async def main():
         except Exception as e:
             print(f"[BOT] Auth failed: {e}")
             return
-        digest_due = news.should_post_news()
-        has_notifications = os.path.exists("work_data.json")
-        load_model = digest_due or has_notifications
-        llm = generator.get_model() if load_model else None
-        if digest_due:
-            await news.post_news_if_due(client)
-        if has_notifications and llm:
+        await news.post_news_if_due(client)
+        if os.path.exists("work_data.json"):
             with open("work_data.json", "r") as f:
                 work_data = json.load(f)
             if work_data.get("items"):
+                llm = generator.get_model()
                 for item in work_data["items"]:
                     await process_item(client, item, llm)
                     await asyncio.sleep(1)
