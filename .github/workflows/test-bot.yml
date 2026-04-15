@@ -6,6 +6,20 @@ on:
       POST_URI:
         description: 'Bluesky Post URI or URL (at://... or https://bsky.app/...)'
         required: true
+      TEST_QUESTION:
+        description: 'Optional question for the bot to answer (leave empty for context-only mode)'
+        required: false
+        default: ''
+      USE_TAVILY:
+        description: 'Use Tavily search (requires TEST_QUESTION)'
+        required: false
+        type: boolean
+        default: false
+      USE_CHAINBASE:
+        description: 'Use Chainbase search (requires TEST_QUESTION)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   test:
@@ -21,6 +35,9 @@ jobs:
       PAT: ${{ secrets.PAT }}
       GITHUB_REPOSITORY: ${{ github.repository }}
       POST_URI: ${{ github.event.inputs.POST_URI }}
+      TEST_QUESTION: ${{ github.event.inputs.TEST_QUESTION }}
+      USE_TAVILY: ${{ github.event.inputs.USE_TAVILY }}
+      USE_CHAINBASE: ${{ github.event.inputs.USE_CHAINBASE }}
 
     steps:
       - uses: actions/checkout@v4
