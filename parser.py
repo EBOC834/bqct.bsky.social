@@ -1,6 +1,8 @@
 import re
 import httpx
 from typing import List, Dict, Optional
+from bs4 import BeautifulSoup
+from trafilatura import extract as trafilatura_extract
 
 def _is_sequential_thread_post(text: str) -> bool:
     return bool(re.match(r'^[\s"\']*(\d+)/(\d+)', text) or re.search(r'[\s"\'](\d+)/(\d+)[\s"\']', text[:50]))
@@ -60,96 +62,145 @@ def _extract_embed_full(embed: Optional[Dict]) -> tuple:
             parts.append(record_text)
     return " ".join(p for p in parts if p), alts
 
-async def extract_link_metadata(url: str) -> Dict[str, str]:
+async def _extract_link_metadata(url: str) -> Dict[str, str]:
     try:
         async with httpx.AsyncClient(follow_redirects=True) as c:
-            r = await c.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+            r = await c.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
             if r.status_code == 200:
-                from bs4 import BeautifulSoup
                 soup = BeautifulSoup(r.text, 'html.parser')
-                title = soup.find('meta', property='og:title')
-                desc = soup.find('meta', property='og:description')
-                site_name = soup.find('meta', property='og:site_name')
-                result = {
-                    "title": title.get('content', '').strip() if title else '',
-                    "description": desc.get('content', '').strip() if desc else '',
-                    "site_name": site_name.get('content', '').strip() if site_name else ''
-                }
-                if not result["title"]:
-                    h1 = soup.find('h1')
-                    if h1:
-                        result["title"] = h1.get_text().strip()[:150]
-                return result
+                t = soup.find('meta', property='og:title')
+                d = soup.find('meta', property='og:description')
+                return {"title": t.get('content', '') if t else '', "description": d.get('content', '') if d else ''}
     except:
         pass
-    return {"title": "", "description": "", "site_name": ""}
+    return {"title": "", "description": ""}
 
-def parse_bluesky_post(raw_record: Dict) -> Dict:
-    if not raw_record or "value" not in raw_record:
-        return {}
-    post = raw_record.get("value", {})
-    author = raw_record.get("author", {})
-    txt = post.get("text", "")
-    embed = post.get("embed")
-    embed_text, alts = _extract_embed_full(embed)
-    if "http" in txt:
-        urls = re.findall(r'https?://[^\s]+', txt)
-        if urls:
-            import asyncio
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-            if loop:
-                lm = asyncio.run(extract_link_metadata(urls[0]))
-            else:
-                import asyncio
-                lm = asyncio.run(extract_link_metadata(urls[0]))
-            parts = []
-            if lm.get("site_name"):
-                parts.append(f"[{lm['site_name']}]")
-            if lm.get("title"):
-                parts.append(f"{lm['title']}")
-            if lm.get("description"):
-                parts.append(f"{lm['description'][:150]}")
-            if parts:
-                txt = f"{txt}\n[Linked: {' '.join(parts)}]"
-    if alts:
-        txt = f"{txt}\n[HINT from image alt: {'; '.join(alts)}]"
-    return {
-        "uri": raw_record.get("uri", ""),
-        "did": author.get("did", ""),
-        "handle": author.get("handle", ""),
-        "text": txt,
-        "embed": embed_text,
-        "alts": alts,
-        "is_root": False,
-        "is_sequential": _is_sequential_thread_post(txt),
-        "cid": raw_record.get("cid", "")
-    }
+async def _extract_clean_url_content(url: str) -> Optional[str]:
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as c:
+            r = await c.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+            if r.status_code == 200:
+                content = trafilatura_extract(r.text, include_tables=False, include_comments=False, output_format="txt")
+                if content:
+                    return content[:400].strip()
+    except:
+        pass
+    return None
 
-def parse_bluesky_thread(raw_thread: Dict, root_uri: str) -> List[Dict]:
-    posts = []
-    def collect(node, depth=0):
+def _extract_urls_from_text(text: str) -> List[str]:
+    return re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', text)
+
+async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
+    all_nodes = []
+    quoted_cache = {}
+    link_cache = {}
+
+    async def collect_nodes(node, parent_uri=None):
         if not node:
             return
-        node_type = node.get("$type", "")
-        if node_type in ["app.bsky.feed.defs#notFoundPost", "app.bsky.feed.defs#blockedPost"]:
+        if node.get("$type") in ["app.bsky.feed.defs#notFoundPost", "app.bsky.feed.defs#blockedPost"]:
             return
         post = node.get("post", {})
-        if not post:
+        record = post.get("record", {})
+        if not record:
             return
-        parsed = parse_bluesky_post(post)
-        if parsed:
-            parsed["is_root"] = (depth == 0)
-            posts.append(parsed)
-        replies = node.get("replies", [])
-        if isinstance(replies, list):
-            for reply in replies:
-                if isinstance(reply, dict):
-                    collect(reply, depth + 1)
-    collect(raw_thread.get("thread", {}), depth=0)
-    return posts
+        node_uri = post.get("uri")
+        author = post.get("author", {})
+        did = author.get("did", "")
+        handle = author.get("handle", did.split(":")[-1] if ":" in did else "unknown")
+        txt = record.get("text", "")
+        embed = record.get("embed")
+        alts = []
+        link_hints = []
+
+        if embed and isinstance(embed, dict):
+            etype = embed.get("$type", "")
+            if etype == "app.bsky.embed.record":
+                rec_ref = embed.get("record", {})
+                if rec_ref and rec_ref.get("uri"):
+                    if rec_ref["uri"] not in quoted_cache:
+                        parts = rec_ref["uri"].split("/")
+                        if len(parts) >= 5:
+                            q = await client.get(
+                                f"https://bsky.social/xrpc/com.atproto.repo.getRecord",
+                                params={"repo": parts[2], "collection": parts[3], "rkey": parts[4]},
+                                headers={"Authorization": f"Bearer {token}"}
+                            )
+                            if q.status_code == 200:
+                                quoted_cache[rec_ref["uri"]] = q.json().get("value", {}).get("text", "")[:200]
+                    if rec_ref["uri"] in quoted_cache:
+                        q_author = rec_ref["uri"].split("/")[2]
+                        txt = f"{txt}\n[Quote @{q_author}: {quoted_cache[rec_ref['uri']]}]"
+            elif etype == "app.bsky.embed.recordWithMedia":
+                rec_ref = embed.get("record", {})
+                media = embed.get("media", {})
+                if rec_ref and rec_ref.get("uri"):
+                    if rec_ref["uri"] not in quoted_cache:
+                        parts = rec_ref["uri"].split("/")
+                        if len(parts) >= 5:
+                            q = await client.get(
+                                f"https://bsky.social/xrpc/com.atproto.repo.getRecord",
+                                params={"repo": parts[2], "collection": parts[3], "rkey": parts[4]},
+                                headers={"Authorization": f"Bearer {token}"}
+                            )
+                            if q.status_code == 200:
+                                quoted_cache[rec_ref["uri"]] = q.json().get("value", {}).get("text", "")[:200]
+                    if rec_ref["uri"] in quoted_cache:
+                        q_author = rec_ref["uri"].split("/")[2]
+                        txt = f"{txt}\n[Quote @{q_author}: {quoted_cache[rec_ref['uri']]}]"
+                if media and media.get("$type") == "app.bsky.embed.images":
+                    for img in media.get("images", []):
+                        if isinstance(img, dict) and img.get("alt"):
+                            alts.append(f"@{handle} image: {img['alt']}")
+            elif etype == "app.bsky.embed.images":
+                for img in embed.get("images", []):
+                    if isinstance(img, dict) and img.get("alt"):
+                        alts.append(f"@{handle} image: {img['alt']}")
+            elif etype == "app.bsky.embed.external":
+                ext = embed.get("external", {})
+                title = ext.get("title", "").strip()
+                desc = ext.get("description", "").strip()
+                uri = ext.get("uri", "").strip()
+                if title:
+                    link_hints.append(f"[Embed Link: {title}]")
+                if desc:
+                    link_hints.append(f"[Desc: {desc[:150]}]")
+                if uri and uri not in link_cache:
+                    clean = await _extract_clean_url_content(uri)
+                    if clean:
+                        link_cache[uri] = clean
+                        link_hints.append(f"[Page content: {clean}]")
+                    link_cache[uri] = link_cache.get(uri, "[Page fetch failed]")
+
+        for url in _extract_urls_from_text(txt):
+            if url not in link_cache:
+                clean = await _extract_clean_url_content(url)
+                if clean:
+                    link_cache[url] = clean
+                    link_hints.append(f"[Linked page: {clean}]")
+                else:
+                    lm = await _extract_link_metadata(url)
+                    if lm.get("title"):
+                        link_hints.append(f"[Linked: {lm['title']}]")
+                link_cache[url] = link_cache.get(url, "[Fetch failed]")
+
+        all_nodes.append({
+            "uri": node_uri,
+            "parent_uri": parent_uri,
+            "did": did,
+            "handle": handle,
+            "text": txt,
+            "alts": alts,
+            "link_hints": link_hints,
+            "is_root": (parent_uri is None)
+        })
+
+        for reply_node in node.get("replies", []):
+            if isinstance(reply_node, dict):
+                await collect_nodes(reply_node, node_uri)
+
+    await collect_nodes(thread_data.get("thread", {}))
+    return all_nodes
 
 def parse_tavily_results(raw_data: Dict) -> str:
     summary = ""
