@@ -9,7 +9,7 @@ from nacl import encoding, public
 from bs4 import BeautifulSoup
 
 import config
-import context
+import context as context_module
 import search
 import generator
 import bsky
@@ -178,7 +178,7 @@ async def main():
     print(f"[TEST] Raw logs: {TEST_RAW_LOGS}")
     print("=" * 60)
 
-    async with httpx.AsyncClient() as client:
+    async with bsky.get_client() as client:
         try:
             r = await client.post(
                 "https://bsky.social/xrpc/com.atproto.server.createSession",
