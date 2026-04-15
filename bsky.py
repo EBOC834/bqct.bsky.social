@@ -1,7 +1,7 @@
 import httpx
 import datetime
 import re
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional
 
 BASE_URL = "https://bsky.social"
 
@@ -141,41 +141,33 @@ async def get_thread_context(client, root_uri: str) -> List[Dict]:
     
     data = r.json()
     all_nodes = []
-    quoted_cache = {}
     
-    async def collect_nodes(node, parent_uri=None, depth=0):
+    def collect_nodes(node, parent_uri=None, depth=0):
         if not node:
             return
+        node_type = node.get("$type", "")
+        if node_type == "app.bsky.feed.defs#notFoundPost" or node_type == "app.bsky.feed.defs#blockedPost":
+            return
         post = node.get("post", {})
+        if not post:
+            return
         record = post.get("record", {})
         if not record:
             return
         
         node_uri = post.get("uri")
         author = post.get("author", {})
-        did = author.get("did", "")
-        handle = author.get("handle", did.split(":")[-1] if ":" in did else "unknown")
+        post_did = author.get("did", "")
+        handle = author.get("handle", post_did.split(":")[-1] if ":" in post_did else "unknown")
         txt = record.get("text", "")
         
         embed = record.get("embed")
         embed_text, alts = _extract_embed_full(embed)
         
-        if embed and embed.get("$type") in ["app.bsky.embed.record", "app.bsky.embed.recordWithMedia"]:
-            rec_ref = embed.get("record", {})
-            if rec_ref and rec_ref.get("uri"):
-                if rec_ref["uri"] not in quoted_cache:
-                    emb_rec = await get_record(client, rec_ref["uri"])
-                    if emb_rec and "value" in emb_rec:
-                        quoted_cache[rec_ref["uri"]] = emb_rec["value"].get("text", "")[:200]
-                emb_txt = quoted_cache.get(rec_ref["uri"], "")
-                if emb_txt:
-                    emb_author = rec_ref["uri"].split("/")[2] if "/" in rec_ref.get("uri", "") else "unknown"
-                    txt = f"{txt}\n[Quote @{emb_author}: {emb_txt}]"
-        
         all_nodes.append({
             "uri": node_uri,
             "parent_uri": parent_uri,
-            "did": did,
+            "did": post_did,
             "handle": handle,
             "text": txt,
             "embed": embed_text,
@@ -184,11 +176,14 @@ async def get_thread_context(client, root_uri: str) -> List[Dict]:
             "is_sequential": _is_sequential_thread_post(txt)
         })
         
-        for reply_node in node.get("replies", []):
-            if isinstance(reply_node, dict):
-                await collect_nodes(reply_node, node_uri, depth + 1)
+        replies = node.get("replies", [])
+        if isinstance(replies, list):
+            for reply_node in replies:
+                if isinstance(reply_node, dict):
+                    collect_nodes(reply_node, node_uri, depth + 1)
     
-    await collect_nodes(data.get("thread", {}), depth=0)
+    thread = data.get("thread", {})
+    collect_nodes(thread, depth=0)
     return all_nodes
 
 def filter_and_select(posts: List[Dict], bot_handle: str, owner_did: Optional[str] = None, limit: int = 10) -> List[Dict]:
