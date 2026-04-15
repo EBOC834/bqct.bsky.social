@@ -31,8 +31,13 @@ async def process_item(client, item, llm):
     parent_cid = rec.get("cid", "")
     thread_id = root_uri
 
-    fresh_context = await bsky.get_context_string(client, root_uri, BOT_HANDLE)
+    fresh_context = await bsky.get_context_string(client, root_uri, BOT_HANDLE, owner_did=os.getenv("OWNER_DID"))
     persisted_context = memory.load_context(thread_id)
+
+    print(f"[DEBUG] fresh_context length: {len(fresh_context)}", flush=True)
+    if fresh_context:
+        print(f"[DEBUG] fresh_context preview: {fresh_context[:200]}...", flush=True)
+    print(f"[DEBUG] persisted_context length: {len(persisted_context) if persisted_context else 0}", flush=True)
 
     search_results = ""
     search_valid = False
@@ -88,7 +93,6 @@ async def process_item(client, item, llm):
     )
     print(f"Reply: {reply}", flush=True)
 
-    # 🔍 Detailed URI/CID logging for reply routing
     print(f"[DEBUG] Reply routing:", flush=True)
     print(f"  - Target post (parent_uri): {uri}", flush=True)
     print(f"  - Target CID (parent_cid): {parent_cid[:20] if parent_cid else 'EMPTY'}", flush=True)
