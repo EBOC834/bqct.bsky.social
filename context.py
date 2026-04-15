@@ -48,23 +48,14 @@ def load_context(thread_id):
     return ""
 
 def save_context(thread_id, content):
-    slots = []
-    for i in range(SECRET_COUNT):
-        data = _parse_slot(i)
-        if data:
-            slots.append((i, data))
-        else:
-            slots.append((i, None))
-    
+    slots = [(i, _parse_slot(i)) for i in range(SECRET_COUNT)]
     target_idx = None
     for i, data in slots:
         if data and data.get("thread_id") == thread_id:
             target_idx = i
             break
-    
     if target_idx is None:
-        oldest_idx = 0
-        oldest_ts = float("inf")
+        oldest_idx, oldest_ts = 0, float("inf")
         for i, data in slots:
             if data is None:
                 oldest_idx = i
@@ -74,9 +65,55 @@ def save_context(thread_id, content):
                 oldest_ts = ts
                 oldest_idx = i
         target_idx = oldest_idx
-    
     payload = json.dumps({"thread_id": thread_id, "content": content, "ts": int(time.time())}, ensure_ascii=False)
     try:
         _write_secret(f"CONTEXT_{target_idx}", payload)
-    except Exception:
+    except:
         pass
+
+def load_daily_post_date():
+    raw = os.getenv("DAILY_POST_DATE", "")
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        if not data:
+            return None
+        return data
+    except:
+        return None
+
+def save_daily_post_date(date_str):
+    payload = json.dumps({"date": date_str, "ts": int(time.time())}, ensure_ascii=False)
+    try:
+        _write_secret("DAILY_POST_DATE", payload)
+    except:
+        pass
+
+def merge_contexts(root_post: Dict, recent_posts: List[Dict], memory: str, search_results: str) -> str:
+    parts = []
+    if memory:
+        parts.append(f"Thread Summary:\n{memory}\n")
+    if root_post and root_post.get("text"):
+        marker = " [ROOT]" if root_post.get("is_root") else ""
+        line = f"@{root_post.get('handle', 'unknown')}{marker}: {root_post['text']}"
+        if root_post.get("embed"):
+            line += f" {root_post['embed']}"
+        parts.append(f"Thread Context:\n{line}")
+    for p in recent_posts:
+        if p.get("is_root"):
+            continue
+        marker = " [BOT]" if p.get("handle") == os.getenv("BOT_HANDLE") else ""
+        line = f"@{p.get('handle', 'unknown')}{marker}: {p.get('text', '')}"
+        if p.get("embed"):
+            line += f" {p['embed']}"
+        parts.append(line)
+    if search_results:
+        parts.append(f"Search Results:\n{search_results}")
+    all_alts = []
+    for p in [root_post] + recent_posts:
+        if p and p.get("alts"):
+            all_alts.extend(p["alts"])
+    if all_alts:
+        parts.append(f"\n[Image/Video alts: {'; '.join(set(all_alts))}]")
+    return "\n".join(parts)
