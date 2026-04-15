@@ -133,7 +133,7 @@ async def get_thread_context(client, root_uri: str) -> List[Dict]:
                 emb_txt = quoted_cache.get(rec_ref["uri"], "")
                 if emb_txt:
                     emb_author = rec_ref["uri"].split("/")[2] if "/" in rec_ref.get("uri", "") else "unknown"
-                    txt = f"{txt}\n[🔁 @{emb_author}: {emb_txt}]"
+                    txt = f"{txt}\n[Quote @{emb_author}: {emb_txt}]"
         
         all_nodes.append({
             "uri": node_uri,
