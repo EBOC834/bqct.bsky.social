@@ -60,14 +60,21 @@ async def main():
             print(f"[TEST] Auth failed: {e}")
             sys.exit(1)
 
-        rec = await bsky.get_record(client, POST_URI)
+        normalized_uri = await bsky.normalize_uri(client, POST_URI)
+        if not normalized_uri:
+            print(f"[TEST] ERROR: Could not parse URI: {POST_URI}")
+            sys.exit(1)
+        
+        print(f"[TEST] Normalized URI: {normalized_uri}")
+
+        rec = await bsky.get_record(client, normalized_uri)
         if not rec:
-            print("[TEST] ERROR: Record not found.")
+            print(f"[TEST] ERROR: Record not found for URI: {normalized_uri}")
             sys.exit(1)
 
         user_text = rec["value"].get("text", "")
         reply_info = rec["value"].get("reply", {})
-        root_uri = reply_info.get("root", {}).get("uri", POST_URI)
+        root_uri = reply_info.get("root", {}).get("uri", normalized_uri)
         root_cid = reply_info.get("root", {}).get("cid", "")
         parent_cid = rec.get("cid", "")
         thread_id = root_uri
