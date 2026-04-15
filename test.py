@@ -6,6 +6,7 @@ import httpx
 import re
 import base64
 from nacl import encoding, public
+from bs4 import BeautifulSoup
 
 import config
 import context
@@ -32,16 +33,20 @@ async def _extract_link_metadata(url):
         async with httpx.AsyncClient(follow_redirects=True) as c:
             r = await c.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
             if r.status_code == 200:
-                from bs4 import BeautifulSoup
                 soup = BeautifulSoup(r.text, 'html.parser')
                 t = soup.find('meta', property='og:title')
                 d = soup.find('meta', property='og:description')
                 return {"title": t.get('content', '') if t else '', "description": d.get('content', '') if d else ''}
-    except: pass
+    except:
+        pass
     return {"title": "", "description": ""}
 
-async def _fetch_full_thread_context(client, root_uri):
-    r = await client.get("/xrpc/com.atproto.feed.getPostThread", params={"uri": root_uri, "depth": 100}, timeout=60)
+async def _fetch_full_thread_context(client, root_uri, token):
+    r = await client.get(
+        f"https://bsky.social/xrpc/app.bsky.feed.getPostThread?uri={root_uri}&depth=100",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=60
+    )
     if r.status_code != 200:
         return f"[ERROR] getPostThread failed: {r.status_code}"
 
@@ -50,13 +55,14 @@ async def _fetch_full_thread_context(client, root_uri):
     quoted_cache = {}
 
     async def collect_nodes(node, parent_uri=None):
-        if not node: return
-        if node.get("$type") in ["app.bsky.feed.defs#notFoundPost", "app.bsky.feed.defs#blockedPost"]: return
-
+        if not node:
+            return
+        if node.get("$type") in ["app.bsky.feed.defs#notFoundPost", "app.bsky.feed.defs#blockedPost"]:
+            return
         post = node.get("post", {})
         record = post.get("record", {})
-        if not record: return
-
+        if not record:
+            return
         node_uri = post.get("uri")
         author = post.get("author", {})
         did = author.get("did", "")
@@ -64,7 +70,6 @@ async def _fetch_full_thread_context(client, root_uri):
         txt = record.get("text", "")
         embed = record.get("embed")
         alts = []
-
         if embed and isinstance(embed, dict):
             etype = embed.get("$type", "")
             if etype == "app.bsky.embed.record":
@@ -73,13 +78,16 @@ async def _fetch_full_thread_context(client, root_uri):
                     if rec_ref["uri"] not in quoted_cache:
                         parts = rec_ref["uri"].split("/")
                         if len(parts) >= 5:
-                            q = await client.get("/xrpc/com.atproto.repo.getRecord",
-                                                 params={"repo": parts[2], "collection": parts[3], "rkey": parts[4]})
+                            q = await client.get(
+                                f"https://bsky.social/xrpc/com.atproto.repo.getRecord",
+                                params={"repo": parts[2], "collection": parts[3], "rkey": parts[4]},
+                                headers={"Authorization": f"Bearer {token}"}
+                            )
                             if q.status_code == 200:
                                 quoted_cache[rec_ref["uri"]] = q.json().get("value", {}).get("text", "")[:200]
                     if rec_ref["uri"] in quoted_cache:
                         q_author = rec_ref["uri"].split("/")[2]
-                        txt = f"{txt}\n[🔁 @{q_author}: {quoted_cache[rec_ref['uri']]}]"
+                        txt = f"{txt}\n[Quote @{q_author}: {quoted_cache[rec_ref['uri']]}]"
             elif etype == "app.bsky.embed.recordWithMedia":
                 rec_ref = embed.get("record", {})
                 media = embed.get("media", {})
@@ -87,13 +95,16 @@ async def _fetch_full_thread_context(client, root_uri):
                     if rec_ref["uri"] not in quoted_cache:
                         parts = rec_ref["uri"].split("/")
                         if len(parts) >= 5:
-                            q = await client.get("/xrpc/com.atproto.repo.getRecord",
-                                                 params={"repo": parts[2], "collection": parts[3], "rkey": parts[4]})
+                            q = await client.get(
+                                f"https://bsky.social/xrpc/com.atproto.repo.getRecord",
+                                params={"repo": parts[2], "collection": parts[3], "rkey": parts[4]},
+                                headers={"Authorization": f"Bearer {token}"}
+                            )
                             if q.status_code == 200:
                                 quoted_cache[rec_ref["uri"]] = q.json().get("value", {}).get("text", "")[:200]
                     if rec_ref["uri"] in quoted_cache:
                         q_author = rec_ref["uri"].split("/")[2]
-                        txt = f"{txt}\n[🔁 @{q_author}: {quoted_cache[rec_ref['uri']]}]"
+                        txt = f"{txt}\n[Quote @{q_author}: {quoted_cache[rec_ref['uri']]}]"
                 if media and media.get("$type") == "app.bsky.embed.images":
                     for img in media.get("images", []):
                         if isinstance(img, dict) and img.get("alt"):
@@ -106,9 +117,7 @@ async def _fetch_full_thread_context(client, root_uri):
                 ext = embed.get("external", {})
                 if isinstance(ext, dict) and ext.get("alt"):
                     alts.append(f"Link: {ext['alt']}")
-
         all_nodes.append({"handle": handle, "text": txt, "alts": alts, "is_root": (parent_uri is None)})
-
         for reply_node in node.get("replies", []):
             if isinstance(reply_node, dict):
                 await collect_nodes(reply_node, node_uri)
@@ -169,9 +178,15 @@ async def main():
     print(f"[TEST] Raw logs: {TEST_RAW_LOGS}")
     print("=" * 60)
 
-    async with bsky.get_client() as client:
+    async with httpx.AsyncClient() as client:
         try:
-            await bsky.login(client, BOT_HANDLE, BOT_PASSWORD)
+            r = await client.post(
+                "https://bsky.social/xrpc/com.atproto.server.createSession",
+                json={"identifier": BOT_HANDLE, "password": BOT_PASSWORD},
+                timeout=30
+            )
+            r.raise_for_status()
+            token = r.json()["accessJwt"]
             print("[TEST] Authenticated successfully.")
         except Exception as e:
             print(f"[TEST] Auth failed: {e}")
@@ -200,10 +215,10 @@ async def main():
         print(f"[TEST] Root URI: {root_uri}")
 
         print("\n" + "=" * 60)
-        print("[STEP 1] FETCHING FULL THREAD CONTEXT (OLD BOT LOGIC)")
+        print("[STEP 1] FETCHING FULL THREAD CONTEXT")
         print("=" * 60)
         
-        thread_context = await _fetch_full_thread_context(client, root_uri)
+        thread_context = await _fetch_full_thread_context(client, root_uri, token)
         print(f"[STEP 1] Length: {len(thread_context)} chars")
         print(f"[STEP 1] Content:\n{thread_context if thread_context else '(Empty)'}\n")
 
@@ -260,10 +275,8 @@ async def main():
                 supported = provider.get("supports", [])
                 kwargs = {k: v for k, v in search_params.items() if k in supported}
                 kwargs.pop('query', None)
-                
                 search_results = await func(search_params["query"], **kwargs)
                 search_valid = search.is_search_result_valid(search_results, search_type)
-                
                 print(f"[STEP 3] Valid: {search_valid}")
                 print(f"[STEP 3] Results Length: {len(search_results)}")
                 print(f"[STEP 3] Content:\n{search_results[:500]}{'...' if len(search_results)>500 else ''}\n")
