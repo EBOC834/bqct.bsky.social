@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       POST_URI:
-        description: 'Bluesky Post URI to test (at://...)'
+        description: 'Bluesky Post URI or URL (at://... or https://bsky.app/...)'
         required: true
 
 jobs:
@@ -30,12 +30,27 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Cache Python dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.pythonLocation }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Cache model file
+        uses: actions/cache@v4
+        with:
+          path: models/qwen2.5-coder-14b-instruct-q5_k_m.gguf
+          key: model-qwen14b-q5km
+          restore-keys: model-
+
       - name: Install dependencies
         run: |
           pip install httpx pynacl llama-cpp-python
           pip install -r requirements.txt 2>/dev/null || true
 
-      - name: Download model (if not cached)
+      - name: Ensure model exists
         run: |
           mkdir -p models
           if [ ! -f "models/qwen2.5-coder-14b-instruct-q5_k_m.gguf" ]; then
