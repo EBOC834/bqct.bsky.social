@@ -40,14 +40,8 @@ async def tavily_search(query, time_range=None, topic=None, **kwargs):
             r = await client.post("https://api.tavily.com/search", json=payload, timeout=30)
             if r.status_code == 200:
                 data = r.json()
-                summary = f"AI Answer: {data.get('answer', '')}\n" if data.get('answer') else ""
-                for res in data.get("results", []):
-                    text = res.get("raw_content") or res.get("content", "")
-                    pub_date = res.get("published_date", "")
-                    if pub_date:
-                        text = f"[{pub_date}] {text}"
-                    summary += f"- {res.get('title', '')}: {text[:150]}...\n"
-                return summary[:1000]
+                from parser import parse_tavily_results
+                return parse_tavily_results(data)
     except Exception as e:
         return f"Error: {e}"
 
@@ -63,18 +57,8 @@ async def chainbase_search(query, **kwargs):
             r = await client.get(url, headers={"x-api-key": "demo"}, params=params, timeout=30)
             if r.status_code == 200:
                 data = r.json()
-                items = data.get("items")
-                if not items or not isinstance(items, list) or len(items) == 0:
-                    return "No specific trends found."
-                summary = ""
-                for item in items[:3]:
-                    keyword = item.get("keyword", "")
-                    summary_text = item.get("summary", "")[:150]
-                    rank = item.get("rank_status", "")
-                    score = item.get("score", 0)
-                    if re.search(r'[a-zA-Z]', summary_text):
-                        summary += f"- {keyword} [{rank}, score:{score}]: {summary_text}...\n"
-                return summary[:1000] if summary else "No specific trends found."
+                from parser import parse_chainbase_results
+                return parse_chainbase_results(data)
             return f"Chainbase API error: HTTP {r.status_code}"
     except Exception as e:
         return f"Error: {e}"
