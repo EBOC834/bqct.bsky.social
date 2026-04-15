@@ -127,20 +127,27 @@ def _extract_embed_full(embed: Optional[Dict]) -> tuple:
 
 async def extract_link_metadata(url: str) -> Dict[str, str]:
     try:
-        async with httpx.AsyncClient() as c:
-            r = await c.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        async with httpx.AsyncClient(follow_redirects=True) as c:
+            r = await c.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
             if r.status_code == 200:
                 from bs4 import BeautifulSoup
                 soup = BeautifulSoup(r.text, 'html.parser')
                 title = soup.find('meta', property='og:title')
                 desc = soup.find('meta', property='og:description')
-                return {
-                    "title": title.get('content', '') if title else '',
-                    "description": desc.get('content', '') if desc else ''
+                site_name = soup.find('meta', property='og:site_name')
+                result = {
+                    "title": title.get('content', '').strip() if title else '',
+                    "description": desc.get('content', '').strip() if desc else '',
+                    "site_name": site_name.get('content', '').strip() if site_name else ''
                 }
+                if not result["title"]:
+                    h1 = soup.find('h1')
+                    if h1:
+                        result["title"] = h1.get_text().strip()[:150]
+                return result
     except:
         pass
-    return {"title": "", "description": ""}
+    return {"title": "", "description": "", "site_name": ""}
 
 async def get_thread_context(client, root_uri: str) -> List[Dict]:
     rec = await get_record(client, root_uri)
@@ -156,8 +163,15 @@ async def get_thread_context(client, root_uri: str) -> List[Dict]:
         urls = re.findall(r'https?://[^\s]+', txt)
         if urls:
             lm = await extract_link_metadata(urls[0])
-            if lm["title"]:
-                txt = f"{txt}\n[Linked: {lm['title']}]"
+            parts = []
+            if lm.get("site_name"):
+                parts.append(f"[{lm['site_name']}]")
+            if lm.get("title"):
+                parts.append(f"{lm['title']}")
+            if lm.get("description"):
+                parts.append(f"{lm['description'][:150]}")
+            if parts:
+                txt = f"{txt}\n[Linked: {' '.join(parts)}]"
     
     embed = post.get("embed")
     embed_text, alts = _extract_embed_full(embed)
