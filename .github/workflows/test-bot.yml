@@ -20,6 +20,11 @@ on:
         required: false
         type: boolean
         default: false
+      TEST_RAW_LOGS:
+        description: 'Enable raw JSON logging for debugging (API responses, payloads)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   test:
@@ -38,6 +43,7 @@ jobs:
       TEST_QUESTION: ${{ github.event.inputs.TEST_QUESTION }}
       USE_TAVILY: ${{ github.event.inputs.USE_TAVILY }}
       USE_CHAINBASE: ${{ github.event.inputs.USE_CHAINBASE }}
+      TEST_RAW_LOGS: ${{ github.event.inputs.TEST_RAW_LOGS }}
 
     steps:
       - uses: actions/checkout@v4
