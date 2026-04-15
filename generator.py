@@ -31,10 +31,18 @@ def get_answer(llm, memory_context, fresh_context, search_results, user_text, do
         full_context += f"Thread Context:\n{fresh_context}\n\n"
     if search_results:
         full_context += f"Search Results:\n{search_results}\n\n"
+    
     prompt = f"{prompts.ANSWER_SYSTEM}\n\n{full_context}User Question:\n{user_text}"
     fp = f"  system\n{prompts.ANSWER_SYSTEM}\n  user\n{prompt}\n  assistant\n"
+    
+    print(f"[GENERATOR] Prompt length: {len(prompt)} chars")
+    print(f"[GENERATOR] Context preview: {full_context[:300]}...")
+    
     out = llm(fp, max_tokens=config.MAX_TOKENS, stop=["  user", "  system", "  assistant"], echo=False, temperature=config.TEMPERATURE)
     reply = out["choices"][0]["text"].strip()
+    
+    print(f"[GENERATOR] Generated reply ({len(reply)} chars): {reply}")
+    
     suffix = ""
     if do_search and search_type in ["tavily", "chainbase"]:
         from search import SOURCE_SUFFIXES
