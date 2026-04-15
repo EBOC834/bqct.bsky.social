@@ -1,5 +1,5 @@
 import os
-from memory import load_context, save_context, load_daily_post_date, save_daily_post_date
+from memory import load_context, save_context, _write_secret
 
 def merge_contexts(root_post: dict, recent_posts: list, memory: str, search_results: str) -> str:
     parts = []
@@ -31,7 +31,14 @@ def merge_contexts(root_post: dict, recent_posts: list, memory: str, search_resu
             all_alts.extend(p["alts"])
     if all_alts:
         parts.append(f"\n[Image/Video alts: {'; '.join(set(all_alts))}]")
-    
-    merged = "\n".join(parts)
-    print(f"[CONTEXT] Merged context length: {len(merged)} chars")
-    return merged
+    return "\n".join(parts)
+
+def load_daily_post_ts():
+    raw = os.getenv("LAST_NEWS", "")
+    return raw if raw else None
+
+def save_daily_post_ts(ts_str):
+    try:
+        _write_secret("LAST_NEWS", ts_str)
+    except:
+        pass
