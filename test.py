@@ -91,9 +91,6 @@ async def main():
         print(f"[TEST] User text: {user_text[:200]}...")
         print(f"[TEST] Root URI: {root_uri}")
 
-        # =====================================================================
-        # STEP 1: FETCH THREAD CONTEXT FROM BLUESKY
-        # =====================================================================
         print("\n" + "=" * 60)
         print("[STEP 1] FETCHING THREAD CONTEXT FROM BLUESKY")
         print("=" * 60)
@@ -112,9 +109,6 @@ async def main():
                 thread_data = r.json()
                 print(f"[TEST_RAW] Raw Thread JSON (first 2000 chars):\n{json.dumps(thread_data, indent=2, ensure_ascii=False)[:2000]}...\n")
 
-        # =====================================================================
-        # STEP 2: LOAD PERSISTED CONTEXT FROM SECRETS
-        # =====================================================================
         print("\n" + "=" * 60)
         print("[STEP 2] LOADING PERSISTED CONTEXT FROM SECRETS")
         print("=" * 60)
@@ -141,9 +135,6 @@ async def main():
         
         print(f"[STEP 2] Final Persisted Context Length: {len(persisted_context)}")
 
-        # =====================================================================
-        # STEP 3: FETCH SEARCH RESULTS (IF ENABLED)
-        # =====================================================================
         search_results = ""
         search_valid = False
         search_type = None
@@ -191,9 +182,6 @@ async def main():
         else:
             print("\n[STEP 3] SKIPPED: No question or sources enabled.")
 
-        # =====================================================================
-        # STEP 4: ASSEMBLE FINAL CONTEXT & GENERATE REPLY
-        # =====================================================================
         print("\n" + "=" * 60)
         print("[STEP 4] ASSEMBLING FINAL CONTEXT & GENERATING REPLY")
         print("=" * 60)
