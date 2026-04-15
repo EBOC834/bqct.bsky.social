@@ -16,6 +16,9 @@ import prompts
 PAT = os.getenv("PAT")
 REPO = os.getenv("GITHUB_REPOSITORY")
 POST_URI = os.getenv("POST_URI")
+TEST_QUESTION = os.getenv("TEST_QUESTION", "").strip()
+USE_TAVILY = os.getenv("USE_TAVILY", "false").lower() == "true"
+USE_CHAINBASE = os.getenv("USE_CHAINBASE", "false").lower() == "true"
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 BOT_DID = os.getenv("BOT_DID")
@@ -50,6 +53,8 @@ async def main():
         sys.exit(1)
 
     print(f"[TEST] Starting isolated run for: {POST_URI}")
+    print(f"[TEST] Question: '{TEST_QUESTION}'" if TEST_QUESTION else "[TEST] Question: (none)")
+    print(f"[TEST] Sources: tavily={USE_TAVILY}, chainbase={USE_CHAINBASE}")
     print("[TEST] Mode: DRY-RUN (No posts, No LAST_PROCESSED update)")
 
     async with bsky.get_client() as client:
@@ -79,12 +84,12 @@ async def main():
         parent_cid = rec.get("cid", "")
         thread_id = root_uri
 
-        print(f"[TEST] User text: {user_text}")
+        print(f"[TEST] User text: {user_text[:200]}...")
         print(f"[TEST] Root URI: {root_uri}")
 
-        fresh_context = await bsky.get_context_string(client, root_uri, BOT_HANDLE, owner_did=OWNER_DID)
-        print(f"[TEST] Fresh Context Length: {len(fresh_context)}")
-        print(f"[TEST] Fresh Context RAW:\n{fresh_context}\n")
+        thread_context = await bsky.get_context_string(client, root_uri, BOT_HANDLE, owner_did=OWNER_DID)
+        print(f"[TEST] Thread Context Length: {len(thread_context)}")
+        print(f"[TEST] Thread Context RAW:\n{thread_context}\n")
 
         persisted_context = ""
         try:
@@ -101,15 +106,19 @@ async def main():
 
         search_results = ""
         search_valid = False
-        search_type = "tavily"
-        if "!t" in user_text.lower():
-            search_type = "tavily"
-        elif "!c" in user_text.lower():
-            search_type = "chainbase"
-        
-        if search_type in ["tavily", "chainbase"]:
-            print(f"[TEST] Running search ({search_type})...")
-            search_params = generator.extract_search_params(generator.get_model(), user_text)
+        search_type = None
+
+        has_question = bool(TEST_QUESTION)
+        has_source = USE_TAVILY or USE_CHAINBASE
+
+        if has_question and has_source:
+            if USE_TAVILY:
+                search_type = "tavily"
+            elif USE_CHAINBASE:
+                search_type = "chainbase"
+            
+            print(f"[TEST] Running search ({search_type}) for question: '{TEST_QUESTION}'...")
+            search_params = generator.extract_search_params(generator.get_model(), TEST_QUESTION)
             print(f"[TEST] Search Params: {search_params}")
             
             provider = search.SEARCH_PROVIDERS.get(search_type)
@@ -122,39 +131,46 @@ async def main():
                 search_valid = search.is_search_result_valid(search_results, search_type)
                 print(f"[TEST] Search Valid: {search_valid}")
                 print(f"[TEST] Search Results RAW:\n{search_results[:500]}...\n")
+        elif has_question and not has_source:
+            print("[TEST] Question provided but no source selected — skipping search.")
+        elif not has_question:
+            print("[TEST] No question provided — context-only mode.")
 
         full_context = ""
         if persisted_context:
             full_context += f"Thread Summary:\n{persisted_context}\n\n"
-        if fresh_context:
-            full_context += f"Recent Context:\n{fresh_context}\n\n"
+        if thread_context:
+            full_context += f"Thread Context:\n{thread_context}\n\n"
         if search_results and search_valid:
             full_context += f"Search Results:\n{search_results}\n\n"
 
-        debug_prompt = (
-            f"  system\n{prompts.ANSWER_SYSTEM}\n"
-            f"  user\n{full_context}User Question:\n{user_text}\n"
-            f"  assistant\n"
-        )
-        print(f"[TEST] FULL PROMPT TO MODEL:\n{debug_prompt}\n")
+        if has_question and has_source:
+            debug_prompt = (
+                f"  system\n{prompts.ANSWER_SYSTEM}\n"
+                f"  user\n{full_context}User Question:\n{TEST_QUESTION}\n"
+                f"  assistant\n"
+            )
+            print(f"[TEST] FULL PROMPT TO MODEL:\n{debug_prompt}\n")
 
-        llm = generator.get_model()
-        reply = generator.get_answer(
-            llm,
-            memory_context=persisted_context,
-            fresh_context=fresh_context,
-            search_results=search_results if search_valid else "",
-            user_text=user_text,
-            do_search=bool(search_results),
-            search_type=search_type
-        )
-        print(f"[TEST] Generated Reply:\n{reply}\n")
+            llm = generator.get_model()
+            reply = generator.get_answer(
+                llm,
+                memory_context=persisted_context,
+                fresh_context=thread_context,
+                search_results=search_results if search_valid else "",
+                user_text=TEST_QUESTION,
+                do_search=True,
+                search_type=search_type
+            )
+            print(f"[TEST] Generated Reply:\n{reply}\n")
 
-        print("[TEST] Simulating memory update (TEST_CONTEXT_0)...")
-        new_summary = generator.update_summary(llm, persisted_context, user_text, reply)
-        payload = json.dumps({"thread_id": thread_id, "content": new_summary, "ts": 0}, ensure_ascii=False)
-        _write_test_secret("TEST_CONTEXT_0", payload)
-        print("[TEST] TEST_CONTEXT_0 secret created/updated.")
+            print("[TEST] Simulating memory update (TEST_CONTEXT_0)...")
+            new_summary = generator.update_summary(llm, persisted_context, TEST_QUESTION, reply)
+            payload = json.dumps({"thread_id": thread_id, "content": new_summary, "ts": 0}, ensure_ascii=False)
+            _write_test_secret("TEST_CONTEXT_0", payload)
+            print("[TEST] TEST_CONTEXT_0 secret created/updated.")
+        else:
+            print("[TEST] Skipping reply generation (no question or no source).")
 
         print("[TEST] Post simulated. Nothing sent to Bluesky.")
         print("[TEST] LAST_PROCESSED not modified.")
