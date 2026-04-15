@@ -64,14 +64,16 @@ async def chainbase_search(query, **kwargs):
             if r.status_code == 200:
                 data = r.json()
                 items = data.get("items")
-                if not items or not isinstance(items, list):
+                if not items or not isinstance(items, list) or len(items) == 0:
                     return "No specific trends found."
                 summary = ""
                 for item in items[:3]:
-                    keyword = item.get("keyword", "") or item.get("title", "")
-                    text = item.get("summary", "")[:150]
-                    if re.search(r'[a-zA-Z]', text):
-                        summary += f"- {keyword}: {text}...\n"
+                    keyword = item.get("keyword", "")
+                    summary_text = item.get("summary", "")[:150]
+                    rank = item.get("rank_status", "")
+                    score = item.get("score", 0)
+                    if re.search(r'[a-zA-Z]', summary_text):
+                        summary += f"- {keyword} [{rank}, score:{score}]: {summary_text}...\n"
                 return summary[:1000] if summary else "No specific trends found."
             return f"Chainbase API error: HTTP {r.status_code}"
     except Exception as e:
