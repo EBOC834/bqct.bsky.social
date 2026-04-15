@@ -10,6 +10,8 @@ def merge_contexts(root_post: dict, recent_posts: list, memory: str, search_resu
         line = f"@{root_post.get('handle', 'unknown')}{marker}: {root_post['text']}"
         if root_post.get("embed"):
             line += f" {root_post['embed']}"
+        if root_post.get("link_hints"):
+            line += " " + " ".join(root_post["link_hints"])
         parts.append(f"Thread Context:\n{line}")
     for p in recent_posts:
         if p.get("is_root"):
@@ -18,6 +20,8 @@ def merge_contexts(root_post: dict, recent_posts: list, memory: str, search_resu
         line = f"@{p.get('handle', 'unknown')}{marker}: {p.get('text', '')}"
         if p.get("embed"):
             line += f" {p['embed']}"
+        if p.get("link_hints"):
+            line += " " + " ".join(p["link_hints"])
         parts.append(line)
     if search_results:
         parts.append(f"Search Results:\n{search_results}")
