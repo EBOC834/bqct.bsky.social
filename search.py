@@ -1,13 +1,9 @@
 import os
 import httpx
-import re
+import logging
 
+logger = logging.getLogger(__name__)
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-
-SOURCE_SUFFIXES = {
-    "tavily": "\n\nQwen | Tavily",
-    "chainbase": "\n\nQwen | Chainbase"
-}
 
 def is_search_result_valid(search_results, search_type):
     if not search_results:
@@ -39,9 +35,8 @@ async def tavily_search(query, time_range=None, topic=None, **kwargs):
                 payload["topic"] = topic
             r = await client.post("https://api.tavily.com/search", json=payload, timeout=30)
             if r.status_code == 200:
-                data = r.json()
                 from parser import parse_tavily_results
-                return parse_tavily_results(data)
+                return parse_tavily_results(r.json())
     except Exception as e:
         return f"Error: {e}"
 
@@ -56,9 +51,8 @@ async def chainbase_search(query, **kwargs):
                 params = {"language": "en"}
             r = await client.get(url, headers={"x-api-key": "demo"}, params=params, timeout=30)
             if r.status_code == 200:
-                data = r.json()
                 from parser import parse_chainbase_results
-                return parse_chainbase_results(data)
+                return parse_chainbase_results(r.json())
             return f"Chainbase API error: HTTP {r.status_code}"
     except Exception as e:
         return f"Error: {e}"
