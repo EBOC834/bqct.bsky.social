@@ -1,16 +1,23 @@
 import os
 import re
+import logging
 from llama_cpp import Llama
 import config
 import prompts
 
+logger = logging.getLogger(__name__)
+
 def get_model():
-    return Llama(
-        model_path=config.MODEL_PATH,
-        n_ctx=config.MODEL_N_CTX,
-        n_threads=config.MODEL_N_THREADS,
-        verbose=False
-    )
+    try:
+        return Llama(
+            model_path=config.MODEL_PATH,
+            n_ctx=config.MODEL_N_CTX,
+            n_threads=config.MODEL_N_THREADS,
+            verbose=False
+        )
+    except Exception as e:
+        logger.error(f"Model load failed: {e}")
+        raise
 
 def extract_search_params(llm, user_text, root_post_text=""):
     clean_user_text = re.sub(r'\s*![tc]\b', '', user_text, flags=re.IGNORECASE).strip()
