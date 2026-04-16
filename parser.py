@@ -278,8 +278,8 @@ def parse_chainbase_results(raw_data: Dict) -> str:
     summary = ""
     for item in items[:1]:
         keyword = item.get("keyword", "")
-        summary_text = item.get("summary", "")[:180]
+        summary_text = item.get("summary", "")[:100]
         rank = item.get("rank_status", "")
         if re.search(r'[a-zA-Z]', summary_text):
             summary += f"- {keyword} [{rank}]: {summary_text}\n"
-    return summary[:280] if summary else "No specific trends found."
+    return summary[:250] if summary else "No specific trends found."
