@@ -63,12 +63,10 @@ async def main():
         digest_due, _ = news.should_post()
         has_notifications = os.path.exists("work_data.json")
 
-        # 1. Дайджест (не требует модели, только API Chainbase)
         if digest_due:
             print("[BOT] Digest is due. Posting news...")
             await news.post_if_due(client)
 
-        # 2. Уведомления (требует модель)
         if has_notifications:
             print("[BOT] Notifications found. Loading model...")
             llm = generator.get_model()
