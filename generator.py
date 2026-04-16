@@ -43,13 +43,13 @@ def get_answer(llm, memory_context, fresh_context, search_results, user_text, do
 
     prompt = f"{prompts.ANSWER_SYSTEM}\n\n{full_context}User Question:\n{user_text}"
     print(f"[GEN] Full prompt length: {len(prompt)} chars", flush=True)
-    print(f"[GEN] System prompt: {prompts.ANSWER_SYSTEM[:150]}...", flush=True)
-
+    
     fp = f"  system\n{prompts.ANSWER_SYSTEM}\n  user\n{prompt}\n  assistant\n"
     start = time.time()
     out = llm(fp, max_tokens=config.MAX_TOKENS, stop=["  user", "  system", "  assistant"], echo=False, temperature=config.TEMPERATURE)
     elapsed = time.time() - start
-    raw_reply = out["choices"][0]["text"].strip()
+    
+    raw_reply = out["choices"][0]["text"].strip() # .strip() убирает лишние пробелы/переносы
     print(f"[GEN] LLM raw output ({elapsed:.1f}s): {raw_reply[:200]}...", flush=True)
 
     if do_search and search_type == "tavily":
@@ -59,9 +59,16 @@ def get_answer(llm, memory_context, fresh_context, search_results, user_text, do
     else:
         suffix = "Qwen"
 
+    # Формируем финал. Пробел между ответом и подписью гарантирован.
     final = f"{raw_reply} {suffix}"
+    
     if len(final) > config.RESPONSE_MAX_CHARS:
+        # Обрезаем по пробелу, чтобы не рубить слова
         final = final[:config.RESPONSE_MAX_CHARS].rsplit(' ', 1)[0]
+        # Убеждаемся, что подпись осталась, если влезла
+        if not final.endswith(suffix):
+             final = final + " " + suffix
+
     print(f"[GEN] Final answer ({len(final)} chars): {final[:150]}...", flush=True)
     print(f"[GEN] === END ANSWER GENERATION ===", flush=True)
     return final
