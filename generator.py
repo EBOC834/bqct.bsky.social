@@ -35,19 +35,17 @@ def get_answer(llm, memory_context, fresh_context, search_results, user_text, do
     prompt = f"{prompts.ANSWER_SYSTEM}\n\n{full_context}User Question:\n{user_text}"
     fp = f"  system\n{prompts.ANSWER_SYSTEM}\n  user\n{prompt}\n  assistant\n"
     
-    print(f"[GENERATOR] Prompt length: {len(prompt)} chars")
-    print(f"[GENERATOR] Context preview: {full_context[:300]}...")
-    
     out = llm(fp, max_tokens=config.MAX_TOKENS, stop=["  user", "  system", "  assistant"], echo=False, temperature=config.TEMPERATURE)
     reply = out["choices"][0]["text"].strip()
     
-    print(f"[GENERATOR] Generated reply ({len(reply)} chars): {reply}")
-    
-    suffix = ""
-    if do_search and search_type in ["tavily", "chainbase"]:
-        from search import SOURCE_SUFFIXES
-        suffix = SOURCE_SUFFIXES.get(search_type, "")
-    final = f"{reply}{suffix}"
+    if do_search and search_type == "tavily":
+        suffix = "Qwen | Tavily"
+    elif do_search and search_type == "chainbase":
+        suffix = "Qwen | Chainbase"
+    else:
+        suffix = "Qwen"
+        
+    final = f"{reply} {suffix}"
     return final[:config.RESPONSE_MAX_CHARS]
 
 def update_summary(llm, old_summary, user_text, reply):
@@ -55,3 +53,18 @@ def update_summary(llm, old_summary, user_text, reply):
     fp = f"  system\n{prompts.SUMMARIZE_SYSTEM}\n  user\n{prompt}\n  assistant\n"
     out = llm(fp, max_tokens=128, stop=["  user", "  system", "  assistant"], echo=False, temperature=0.5)
     return out["choices"][0]["text"].strip()[:300]
+
+def generate_digest(llm, raw_line):
+    prompt = (
+        "Rewrite this crypto trend into a single, complete sentence under 260 chars. "
+        "Format exactly: '- KEYWORD [RANK]: Summary.' End with a period. English only.\n\n"
+        f"Input: {raw_line}\n\n"
+        "Output: - "
+    )
+    out = llm(prompt, max_tokens=80, stop=["\n", "Input:", "Output:"], echo=False, temperature=0.1)
+    text = out["choices"][0]["text"].strip()
+    if not text.startswith("- "):
+        text = "- " + text
+    if not text.endswith(('.', '!', '?')):
+        text += "."
+    return text[:260]
