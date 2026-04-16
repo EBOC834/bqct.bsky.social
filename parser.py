@@ -1,8 +1,11 @@
 import re
 import httpx
+import logging
 from typing import List, Dict, Optional
 from bs4 import BeautifulSoup
 from trafilatura import extract as trafilatura_extract
+
+logger = logging.getLogger(__name__)
 
 def _is_sequential_thread_post(text: str) -> bool:
     return bool(re.match(r'^[\s"\']*(\d+)/(\d+)', text) or re.search(r'[\s"\'](\d+)/(\d+)[\s"\']', text[:50]))
@@ -71,82 +74,30 @@ async def _extract_link_metadata(url: str) -> Dict[str, str]:
                 t = soup.find('meta', property='og:title')
                 d = soup.find('meta', property='og:description')
                 return {"title": t.get('content', '') if t else '', "description": d.get('content', '') if d else ''}
-    except:
+    except Exception:
         pass
     return {"title": "", "description": ""}
 
 async def _extract_clean_url_content(url: str) -> Optional[str]:
-    print(f"[PARSER] Fetching URL: {url}")
+    logger.info(f"Fetching URL content: {url}")
     try:
         async with httpx.AsyncClient(follow_redirects=True) as c:
             r = await c.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
-            print(f"[PARSER] URL status: {r.status_code}")
             if r.status_code == 200:
                 content = trafilatura_extract(r.text, include_tables=False, include_comments=False, output_format="txt")
                 if content:
-                    cleaned = content[:400].strip()
-                    print(f"[PARSER] Extracted content ({len(cleaned)} chars): {cleaned[:150]}...")
-                    return cleaned
-                else:
-                    print(f"[PARSER] trafilatura returned empty content")
-            else:
-                print(f"[PARSER] Failed to fetch URL, status {r.status_code}")
+                    return content[:400].strip()
     except Exception as e:
-        print(f"[PARSER] Error fetching URL: {e}")
+        logger.warning(f"Failed to fetch URL {url}: {e}")
     return None
 
 def _extract_urls_from_text(text: str) -> List[str]:
     return re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', text)
 
-def parse_bluesky_post(raw_record: Dict) -> Dict:
-    if not raw_record or "value" not in raw_record:
-        return {}
-    post = raw_record.get("value", {})
-    author = raw_record.get("author", {})
-    txt = post.get("text", "")
-    embed = post.get("embed")
-    embed_text, alts = _extract_embed_full(embed)
-    link_hints = []
-    if "http" in txt:
-        urls = re.findall(r'https?://[^\s]+', txt)
-        if urls:
-            lm = _extract_link_metadata_sync(urls[0])
-            if lm.get("title"):
-                link_hints.append(f"[Linked: {lm['title']}]")
-                print(f"[PARSER] Added link meta {lm['title']}")
-    return {
-        "uri": raw_record.get("uri", ""),
-        "did": author.get("did", ""),
-        "handle": author.get("handle", ""),
-        "text": txt,
-        "embed": embed_text,
-        "alts": alts,
-        "link_hints": link_hints,
-        "is_root": False,
-        "is_sequential": _is_sequential_thread_post(txt),
-        "cid": raw_record.get("cid", "")
-    }
-
-def _extract_link_metadata_sync(url: str) -> Dict[str, str]:
-    try:
-        import urllib.request
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            if r.status == 200:
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(r.read(), 'html.parser')
-                t = soup.find('meta', property='og:title')
-                d = soup.find('meta', property='og:description')
-                return {"title": t.get('content', '') if t else '', "description": d.get('content', '') if d else ''}
-    except:
-        pass
-    return {"title": "", "description": ""}
-
 async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
     all_nodes = []
     quoted_cache = {}
     link_cache = {}
-
     async def collect_nodes(node, parent_uri=None):
         if not node:
             return
@@ -164,42 +115,25 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
         embed = record.get("embed")
         alts = []
         link_hints = []
-
         if embed and isinstance(embed, dict):
             etype = embed.get("$type", "")
-            if etype == "app.bsky.embed.record":
+            if etype in ["app.bsky.embed.record", "app.bsky.embed.recordWithMedia"]:
                 rec_ref = embed.get("record", {})
-                if rec_ref and rec_ref.get("uri"):
-                    if rec_ref["uri"] not in quoted_cache:
-                        parts = rec_ref["uri"].split("/")
-                        if len(parts) >= 5:
-                            q = await client.get(
-                                f"https://bsky.social/xrpc/com.atproto.repo.getRecord",
-                                params={"repo": parts[2], "collection": parts[3], "rkey": parts[4]},
-                                headers={"Authorization": f"Bearer {token}"}
-                            )
-                            if q.status_code == 200:
-                                quoted_cache[rec_ref["uri"]] = q.json().get("value", {}).get("text", "")[:200]
-                    if rec_ref["uri"] in quoted_cache:
-                        q_author = rec_ref["uri"].split("/")[2]
-                        txt = f"{txt}\n[Quote @{q_author}: {quoted_cache[rec_ref['uri']]}]"
-            elif etype == "app.bsky.embed.recordWithMedia":
-                rec_ref = embed.get("record", {})
+                if rec_ref and rec_ref.get("uri") and rec_ref["uri"] not in quoted_cache:
+                    parts = rec_ref["uri"].split("/")
+                    if len(parts) >= 5:
+                        q = await client.get(
+                            f"https://bsky.social/xrpc/com.atproto.repo.getRecord",
+                            params={"repo": parts[2], "collection": parts[3], "rkey": parts[4]},
+                            headers={"Authorization": f"Bearer {token}"}
+                        )
+                        if q.status_code == 200:
+                            quoted_cache[rec_ref["uri"]] = q.json().get("value", {}).get("text", "")[:200]
+                if rec_ref["uri"] in quoted_cache:
+                    q_author = rec_ref["uri"].split("/")[2]
+                    txt = f"{txt}\n[Quote @{q_author}: {quoted_cache[rec_ref['uri']]}]"
+            if etype == "app.bsky.embed.recordWithMedia":
                 media = embed.get("media", {})
-                if rec_ref and rec_ref.get("uri"):
-                    if rec_ref["uri"] not in quoted_cache:
-                        parts = rec_ref["uri"].split("/")
-                        if len(parts) >= 5:
-                            q = await client.get(
-                                f"https://bsky.social/xrpc/com.atproto.repo.getRecord",
-                                params={"repo": parts[2], "collection": parts[3], "rkey": parts[4]},
-                                headers={"Authorization": f"Bearer {token}"}
-                            )
-                            if q.status_code == 200:
-                                quoted_cache[rec_ref["uri"]] = q.json().get("value", {}).get("text", "")[:200]
-                    if rec_ref["uri"] in quoted_cache:
-                        q_author = rec_ref["uri"].split("/")[2]
-                        txt = f"{txt}\n[Quote @{q_author}: {quoted_cache[rec_ref['uri']]}]"
                 if media and media.get("$type") == "app.bsky.embed.images":
                     for img in media.get("images", []):
                         if isinstance(img, dict) and img.get("alt"):
@@ -222,25 +156,19 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
                     if clean:
                         link_cache[uri] = clean
                         link_hints.append(f"[Page content: {clean}]")
-                        print(f"[PARSER] Added page content for embed link: {uri[:50]}...")
                     else:
-                        link_cache[uri] = link_cache.get(uri, "[Page fetch failed]")
-                        print(f"[PARSER] Could not extract content from embed link: {uri}")
-
+                        link_cache[uri] = "[Page fetch failed]"
         for url in _extract_urls_from_text(txt):
             if url not in link_cache:
                 clean = await _extract_clean_url_content(url)
                 if clean:
                     link_cache[url] = clean
                     link_hints.append(f"[Linked page: {clean}]")
-                    print(f"[PARSER] Added linked page content: {url[:50]}...")
                 else:
                     lm = await _extract_link_metadata(url)
                     if lm.get("title"):
                         link_hints.append(f"[Linked: {lm['title']}]")
-                        print(f"[PARSER] Added link metadata fallback: {lm['title']}")
-                link_cache[url] = link_cache.get(url, "[Fetch failed]")
-
+                    link_cache[url] = "[Fetch failed]"
         all_nodes.append({
             "uri": node_uri,
             "parent_uri": parent_uri,
@@ -251,11 +179,9 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
             "link_hints": link_hints,
             "is_root": (parent_uri is None)
         })
-
         for reply_node in node.get("replies", []):
             if isinstance(reply_node, dict):
                 await collect_nodes(reply_node, node_uri)
-
     await collect_nodes(thread_data.get("thread", {}))
     return all_nodes
 
