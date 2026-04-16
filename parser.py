@@ -76,15 +76,23 @@ async def _extract_link_metadata(url: str) -> Dict[str, str]:
     return {"title": "", "description": ""}
 
 async def _extract_clean_url_content(url: str) -> Optional[str]:
+    print(f"[PARSER] Fetching URL: {url}")
     try:
         async with httpx.AsyncClient(follow_redirects=True) as c:
             r = await c.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+            print(f"[PARSER] URL status: {r.status_code}")
             if r.status_code == 200:
                 content = trafilatura_extract(r.text, include_tables=False, include_comments=False, output_format="txt")
                 if content:
-                    return content[:400].strip()
-    except:
-        pass
+                    cleaned = content[:400].strip()
+                    print(f"[PARSER] Extracted content ({len(cleaned)} chars): {cleaned[:150]}...")
+                    return cleaned
+                else:
+                    print(f"[PARSER] trafilatura returned empty content")
+            else:
+                print(f"[PARSER] Failed to fetch URL, status {r.status_code}")
+    except Exception as e:
+        print(f"[PARSER] Error fetching URL: {e}")
     return None
 
 def _extract_urls_from_text(text: str) -> List[str]:
@@ -105,6 +113,7 @@ def parse_bluesky_post(raw_record: Dict) -> Dict:
             lm = _extract_link_metadata_sync(urls[0])
             if lm.get("title"):
                 link_hints.append(f"[Linked: {lm['title']}]")
+                print(f"[PARSER] Added link meta {lm['title']}")
     return {
         "uri": raw_record.get("uri", ""),
         "did": author.get("did", ""),
@@ -137,6 +146,7 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
     all_nodes = []
     quoted_cache = {}
     link_cache = {}
+
     async def collect_nodes(node, parent_uri=None):
         if not node:
             return
@@ -154,6 +164,7 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
         embed = record.get("embed")
         alts = []
         link_hints = []
+
         if embed and isinstance(embed, dict):
             etype = embed.get("$type", "")
             if etype == "app.bsky.embed.record":
@@ -211,19 +222,25 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
                     if clean:
                         link_cache[uri] = clean
                         link_hints.append(f"[Page content: {clean}]")
+                        print(f"[PARSER] Added page content for embed link: {uri[:50]}...")
                     else:
-                        link_cache[uri] = "[Page fetch failed]"
+                        link_cache[uri] = link_cache.get(uri, "[Page fetch failed]")
+                        print(f"[PARSER] Could not extract content from embed link: {uri}")
+
         for url in _extract_urls_from_text(txt):
             if url not in link_cache:
                 clean = await _extract_clean_url_content(url)
                 if clean:
                     link_cache[url] = clean
                     link_hints.append(f"[Linked page: {clean}]")
+                    print(f"[PARSER] Added linked page content: {url[:50]}...")
                 else:
                     lm = await _extract_link_metadata(url)
                     if lm.get("title"):
                         link_hints.append(f"[Linked: {lm['title']}]")
+                        print(f"[PARSER] Added link metadata fallback: {lm['title']}")
                 link_cache[url] = link_cache.get(url, "[Fetch failed]")
+
         all_nodes.append({
             "uri": node_uri,
             "parent_uri": parent_uri,
@@ -234,9 +251,11 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
             "link_hints": link_hints,
             "is_root": (parent_uri is None)
         })
+
         for reply_node in node.get("replies", []):
             if isinstance(reply_node, dict):
                 await collect_nodes(reply_node, node_uri)
+
     await collect_nodes(thread_data.get("thread", {}))
     return all_nodes
 
