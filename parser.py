@@ -7,23 +7,6 @@ from trafilatura import extract as trafilatura_extract
 def _is_sequential_thread_post(text: str) -> bool:
     return bool(re.match(r'^[\s"\']*(\d+)/(\d+)', text) or re.search(r'[\s"\'](\d+)/(\d+)[\s"\']', text[:50]))
 
-def parse_operators(text):
-    t = text.lower()
-    has_search = False
-    search_type = "tavily"
-    
-    if "!c" in t or "!chainbase" in t:
-        has_search = True
-        search_type = "chainbase"
-    elif "!t" in t or "!tavily" in t:
-        has_search = True
-        search_type = "tavily"
-        
-    clean = re.sub(r'![tc]\w*\b', '', text, flags=re.IGNORECASE).strip()
-    clean = re.sub(r'\s+', ' ', clean).strip()
-    
-    return clean, has_search, search_type
-
 def _extract_embed_full(embed: Optional[Dict]) -> tuple:
     parts, alts = [], []
     if not embed:
@@ -100,7 +83,7 @@ async def _extract_clean_url_content(url: str) -> Optional[str]:
                 content = trafilatura_extract(r.text, include_tables=False, include_comments=False, output_format="txt")
                 if content:
                     return content[:400].strip()
-    except Exception as e:
+    except:
         pass
     return None
 
@@ -154,7 +137,6 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
     all_nodes = []
     quoted_cache = {}
     link_cache = {}
-
     async def collect_nodes(node, parent_uri=None):
         if not node:
             return
@@ -172,7 +154,6 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
         embed = record.get("embed")
         alts = []
         link_hints = []
-
         if embed and isinstance(embed, dict):
             etype = embed.get("$type", "")
             if etype == "app.bsky.embed.record":
@@ -232,7 +213,6 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
                         link_hints.append(f"[Page content: {clean}]")
                     else:
                         link_cache[uri] = "[Page fetch failed]"
-
         for url in _extract_urls_from_text(txt):
             if url not in link_cache:
                 clean = await _extract_clean_url_content(url)
@@ -244,7 +224,6 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
                     if lm.get("title"):
                         link_hints.append(f"[Linked: {lm['title']}]")
                 link_cache[url] = link_cache.get(url, "[Fetch failed]")
-
         all_nodes.append({
             "uri": node_uri,
             "parent_uri": parent_uri,
@@ -255,11 +234,9 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
             "link_hints": link_hints,
             "is_root": (parent_uri is None)
         })
-
         for reply_node in node.get("replies", []):
             if isinstance(reply_node, dict):
                 await collect_nodes(reply_node, node_uri)
-
     await collect_nodes(thread_data.get("thread", {}))
     return all_nodes
 
