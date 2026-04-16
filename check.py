@@ -1,111 +1,75 @@
 import os
-import sys
-import asyncio
-import httpx
-import base64
+import re
 import json
-from nacl import encoding, public
+import httpx
 from datetime import datetime, timezone
 
-BOT_HANDLE = os.getenv("BOT_HANDLE")
-BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 OWNER_DID = os.getenv("OWNER_DID")
 PAT = os.getenv("PAT")
-GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
-LAST_PROCESSED = os.getenv("LAST_PROCESSED", "").strip()
+LAST_PROCESSED = os.getenv("LAST_PROCESSED", "")
 
-if not all([BOT_HANDLE, BOT_PASSWORD, OWNER_DID, PAT, GITHUB_REPOSITORY]):
-    sys.exit(0)
-
-def is_empty(value):
-    if not value:
-        return True
-    v = value.strip().lower()
-    return v in ("", "{}", "null", "none")
-
-def encrypt_secret(pk, secret_value):
-    pk = public.PublicKey(pk.encode("utf-8"), encoding.Base64Encoder())
-    return base64.b64encode(public.SealedBox(pk).encrypt(secret_value.encode("utf-8"))).decode("utf-8")
-
-async def get_pubkey():
+async def fetch_notifications(since):
+    url = "https://bsky.social/xrpc/app.bsky.notification.listNotifications?limit=50"
+    if since:
+        url += f"&seenAt={since}"
+    headers = {"Authorization": f"Bearer {PAT}"} if PAT else {}
     async with httpx.AsyncClient() as c:
-        r = await c.get(f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/public-key", headers={"Authorization": f"token {PAT}"})
-        return r.json()
+        r = await c.get(url, headers=headers, timeout=30)
+        if r.status_code == 200:
+            return r.json().get("notifications", [])
+    return []
 
-async def update_last_processed_secret(value):
-    try:
-        kd = await get_pubkey()
-        enc = encrypt_secret(kd["key"], value)
-        async with httpx.AsyncClient() as c:
-            r = await c.put(f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/LAST_PROCESSED", headers={"Authorization": f"token {PAT}"}, json={"encrypted_value": enc, "key_id": kd["key_id"]})
-            if r.status_code in (201, 204):
-                print(f"Updated LAST_PROCESSED={value}", flush=True)
-                return True
-    except Exception as e:
-        print(f"Failed to update secret: {e}", flush=True)
-        return False
+def parse_operators(text):
+    t = text.lower()
+    if "!c" in t or "!chainbase" in t:
+        return True, "chainbase"
+    if "!t" in t or "!tavily" in t:
+        return True, "tavily"
+    return False, "tavily"
 
 async def main():
-    try:
-        if is_empty(LAST_PROCESSED):
-            now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-            print(f"FIRST RUN: Setting timestamp to NOW: {now}", flush=True)
-            await update_last_processed_secret(now)
-            sys.exit(0)
-        print(f"Checking notifications since {LAST_PROCESSED}", flush=True)
-        async with httpx.AsyncClient() as client:
-            r = await client.post("https://bsky.social/xrpc/com.atproto.server.createSession", json={"identifier": BOT_HANDLE, "password": BOT_PASSWORD}, timeout=30)
-            if r.status_code != 200:
-                raise Exception(f"Login failed: {r.status_code}")
-            token = r.json()["accessJwt"]
-            r = await client.get("https://bsky.social/xrpc/app.bsky.notification.listNotifications", headers={"Authorization": f"Bearer {token}"}, params={"limit": 20}, timeout=30)
-            if r.status_code != 200:
-                raise Exception(f"Fetch failed: {r.status_code}")
-            notifications = r.json().get("notifications", [])
-            relevant = []
-            latest_idx = LAST_PROCESSED
-            for n in notifications:
-                idx = n.get("indexedAt", "")
-                auth = n.get("author", {}).get("did", "")
-                reason = n.get("reason", "")
-                txt = (n.get("record", {}).get("text") or "").strip()
-                uri = n.get("uri", "")
-                if idx <= LAST_PROCESSED:
-                    continue
-                if idx > latest_idx:
-                    latest_idx = idx
-                if auth != OWNER_DID:
-                    continue
-                if reason not in ("mention", "reply"):
-                    continue
-                has_t = "!t" in txt.lower()
-                has_c = "!c" in txt.lower()
-                has_trigger = has_t or has_c
-                has_mention = f"@{BOT_HANDLE}" in txt
-                if has_trigger or has_mention or reason == "reply":
-                    search_type = None
-                    if has_t:
-                        search_type = "tavily"
-                    elif has_c:
-                        search_type = "chainbase"
-                    relevant.append({"uri": uri, "text": txt, "has_search": has_trigger, "search_type": search_type})
-                    print(f"Relevant: {txt[:30]}...", flush=True)
-            if relevant:
-                github_output = os.getenv("GITHUB_OUTPUT", "")
-                if github_output:
-                    with open(github_output, "a") as f:
-                        f.write("has_work=true\n")
-                await update_last_processed_secret(latest_idx)
-                with open("work_data.json", "w") as f:
-                    json.dump({"items": relevant}, f)
-                print(f"Saved {len(relevant)} items", flush=True)
-            else:
-                if notifications:
-                    await update_last_processed_secret(latest_idx)
-                print("No new relevant notifications.", flush=True)
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(0)
+    print(f"Checking notifications since {LAST_PROCESSED or 'beginning'}")
+    notifs = await fetch_notifications(LAST_PROCESSED)
+    if not notifs:
+        print("No new notifications.")
+        return
+
+    relevant = []
+    latest_ts = LAST_PROCESSED
+
+    for n in notifs:
+        if n.get("author", {}).get("did") != OWNER_DID:
+            continue
+        uri = n.get("record", {}).get("uri")
+        if not uri:
+            continue
+        text = n.get("reasonSubject", "") or n.get("record", {}).get("text", "")
+        if not text:
+            continue
+
+        has_search, stype = parse_operators(text)
+        clean = re.sub(r'![tc]\b', '', text, flags=re.IGNORECASE).strip()
+        clean = re.sub(r'\s+', ' ', clean).strip()
+
+        relevant.append({"uri": uri, "text": clean, "has_search": has_search, "search_type": stype})
+        ts = n.get("indexedAt", "")
+        if ts and (not latest_ts or ts > latest_ts):
+            latest_ts = ts
+
+    if not relevant:
+        print("No new relevant notifications.")
+        return
+
+    with open("work_data.json", "w") as f:
+        json.dump({"items": relevant}, f)
+
+    if latest_ts:
+        print(f"Updated LAST_PROCESSED={latest_ts}")
+
+    print(f"Found {len(relevant)} relevant notification(s).")
+    for i in relevant:
+        print(f"  - {i['text'][:80]}... [search={i['has_search']}, type={i['search_type']}]")
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
