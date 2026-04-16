@@ -1,10 +1,12 @@
 import os
+import logging
 from datetime import datetime, timezone
-import context as context_module
+import state
 import search
 import bsky
 import generator
 
+logger = logging.getLogger(__name__)
 BOT_DID = os.getenv("BOT_DID")
 
 def should_post():
@@ -18,7 +20,7 @@ def should_post():
         if diff.total_seconds() >= 6 * 3600:
             return True, now_utc.isoformat()
         return False, raw
-    except:
+    except Exception:
         return True, now_utc.isoformat()
 
 async def post_if_due(client, llm):
@@ -31,16 +33,14 @@ async def post_if_due(client, llm):
     lines = [l.strip() for l in trends.split("\n") if l.strip().startswith("- ")]
     if not lines:
         return False
-
     final_line = generator.generate_digest(llm, lines[0])
-    post_text = final_line + "\n\nQwen | Chainbase TOPS 💜💛"
+    post_text = final_line + "\nQwen | Chainbase TOPS 💜💛"
     if len(post_text) > 300:
-        post_text = post_text[:300].rsplit(' ', 1)[0] + "\n\nQwen | Chainbase TOPS 💜💛"
-
+        post_text = post_text[:300].rsplit(' ', 1)[0] + "\nQwen | Chainbase TOPS 💜💛"
     try:
         await bsky.post_root(client, BOT_DID, post_text)
-        context_module.save_daily_post_ts(new_ts)
+        state.save_daily_post_ts(new_ts)
         return True
     except Exception as e:
-        print(f"[NEWS] Post failed: {e}")
+        logger.error(f"[NEWS] Post failed: {e}")
         return False
