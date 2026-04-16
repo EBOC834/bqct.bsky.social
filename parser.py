@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from trafilatura import extract as trafilatura_extract
 
 logger = logging.getLogger(__name__)
+THREAD_CACHE = {}
 
 def _is_sequential_thread_post(text: str) -> bool:
     return bool(re.match(r'^[\s"\']*(\d+)/(\d+)', text) or re.search(r'[\s"\'](\d+)/(\d+)[\s"\']', text[:50]))
@@ -94,34 +95,34 @@ async def _extract_clean_url_content(url: str) -> Optional[str]:
 def _extract_urls_from_text(text: str) -> List[str]:
     return re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', text)
 
-async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
-    all_nodes = []
-    quoted_cache = {}
-    link_cache = {}
-    async def collect_nodes(node, parent_uri=None):
-        if not node:
-            return
-        if node.get("$type") in ["app.bsky.feed.defs#notFoundPost", "app.bsky.feed.defs#blockedPost"]:
-            return
-        post = node.get("post", {})
-        record = post.get("record", {})
-        if not record:
-            return
-        node_uri = post.get("uri")
-        author = post.get("author", {})
-        did = author.get("did", "")
-        handle = author.get("handle", did.split(":")[-1] if ":" in did else "unknown")
-        txt = record.get("text", "")
-        embed = record.get("embed")
-        alts = []
-        link_hints = []
-        if embed and isinstance(embed, dict):
-            etype = embed.get("$type", "")
-            if etype in ["app.bsky.embed.record", "app.bsky.embed.recordWithMedia"]:
-                rec_ref = embed.get("record", {})
-                if rec_ref and rec_ref.get("uri") and rec_ref["uri"] not in quoted_cache:
-                    parts = rec_ref["uri"].split("/")
-                    if len(parts) >= 5:
+async def _parse_thread_nodes(node, parent_uri=None, client=None, token=None, quoted_cache=None, link_cache=None, all_nodes=None):
+    if not node:
+        return
+    if node.get("$type") in ["app.bsky.feed.defs#notFoundPost", "app.bsky.feed.defs#blockedPost"]:
+        return
+    
+    post = node.get("post", {})
+    record = post.get("record", {})
+    if not record:
+        return
+    
+    node_uri = post.get("uri")
+    author = post.get("author", {})
+    did = author.get("did", "")
+    handle = author.get("handle", did.split(":")[-1] if ":" in did else "unknown")
+    txt = record.get("text", "")
+    embed = record.get("embed")
+    alts = []
+    link_hints = []
+    
+    if embed and isinstance(embed, dict):
+        etype = embed.get("$type", "")
+        if etype in ["app.bsky.embed.record", "app.bsky.embed.recordWithMedia"]:
+            rec_ref = embed.get("record", {})
+            if rec_ref and rec_ref.get("uri") and rec_ref["uri"] not in quoted_cache:
+                parts = rec_ref["uri"].split("/")
+                if len(parts) >= 5:
+                    try:
                         q = await client.get(
                             f"https://bsky.social/xrpc/com.atproto.repo.getRecord",
                             params={"repo": parts[2], "collection": parts[3], "rkey": parts[4]},
@@ -129,60 +130,83 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
                         )
                         if q.status_code == 200:
                             quoted_cache[rec_ref["uri"]] = q.json().get("value", {}).get("text", "")[:200]
-                if rec_ref["uri"] in quoted_cache:
-                    q_author = rec_ref["uri"].split("/")[2]
-                    txt = f"{txt}\n[Quote @{q_author}: {quoted_cache[rec_ref['uri']]}]"
-            if etype == "app.bsky.embed.recordWithMedia":
-                media = embed.get("media", {})
-                if media and media.get("$type") == "app.bsky.embed.images":
-                    for img in media.get("images", []):
-                        if isinstance(img, dict) and img.get("alt"):
-                            alts.append(f"@{handle} image: {img['alt']}")
-            elif etype == "app.bsky.embed.images":
-                for img in embed.get("images", []):
+                    except:
+                        pass
+            if rec_ref["uri"] in quoted_cache:
+                q_author = rec_ref["uri"].split("/")[2]
+                txt = f"{txt}\n[Quote @{q_author}: {quoted_cache[rec_ref['uri']]}]"
+        
+        if etype == "app.bsky.embed.recordWithMedia":
+            media = embed.get("media", {})
+            if media and media.get("$type") == "app.bsky.embed.images":
+                for img in media.get("images", []):
                     if isinstance(img, dict) and img.get("alt"):
                         alts.append(f"@{handle} image: {img['alt']}")
-            elif etype == "app.bsky.embed.external":
-                ext = embed.get("external", {})
-                title = ext.get("title", "").strip()
-                desc = ext.get("description", "").strip()
-                uri = ext.get("uri", "").strip()
-                if title:
-                    link_hints.append(f"[Embed Link: {title}]")
-                if desc:
-                    link_hints.append(f"[Desc: {desc[:150]}]")
-                if uri and uri not in link_cache:
-                    clean = await _extract_clean_url_content(uri)
-                    if clean:
-                        link_cache[uri] = clean
-                        link_hints.append(f"[Page content: {clean}]")
-                    else:
-                        link_cache[uri] = "[Page fetch failed]"
-        for url in _extract_urls_from_text(txt):
-            if url not in link_cache:
-                clean = await _extract_clean_url_content(url)
+        elif etype == "app.bsky.embed.images":
+            for img in embed.get("images", []):
+                if isinstance(img, dict) and img.get("alt"):
+                    alts.append(f"@{handle} image: {img['alt']}")
+        elif etype == "app.bsky.embed.external":
+            ext = embed.get("external", {})
+            title = ext.get("title", "").strip()
+            desc = ext.get("description", "").strip()
+            uri = ext.get("uri", "").strip()
+            if title:
+                link_hints.append(f"[Embed Link: {title}]")
+            if desc:
+                link_hints.append(f"[Desc: {desc[:150]}]")
+            if uri and uri not in link_cache:
+                clean = await _extract_clean_url_content(uri)
                 if clean:
-                    link_cache[url] = clean
-                    link_hints.append(f"[Linked page: {clean}]")
+                    link_cache[uri] = clean
+                    link_hints.append(f"[Page content: {clean}]")
                 else:
-                    lm = await _extract_link_metadata(url)
-                    if lm.get("title"):
-                        link_hints.append(f"[Linked: {lm['title']}]")
-                    link_cache[url] = "[Fetch failed]"
-        all_nodes.append({
-            "uri": node_uri,
-            "parent_uri": parent_uri,
-            "did": did,
-            "handle": handle,
-            "text": txt,
-            "alts": alts,
-            "link_hints": link_hints,
-            "is_root": (parent_uri is None)
-        })
-        for reply_node in node.get("replies", []):
-            if isinstance(reply_node, dict):
-                await collect_nodes(reply_node, node_uri)
-    await collect_nodes(thread_data.get("thread", {}))
+                    link_cache[uri] = "[Page fetch failed]"
+    
+    for url in _extract_urls_from_text(txt):
+        if url not in link_cache:
+            clean = await _extract_clean_url_content(url)
+            if clean:
+                link_cache[url] = clean
+                link_hints.append(f"[Linked page: {clean}]")
+            else:
+                lm = await _extract_link_metadata(url)
+                if lm.get("title"):
+                    link_hints.append(f"[Linked: {lm['title']}]")
+                link_cache[url] = "[Fetch failed]"
+    
+    all_nodes.append({
+        "uri": node_uri,
+        "parent_uri": parent_uri,
+        "did": did,
+        "handle": handle,
+        "text": txt,
+        "alts": alts,
+        "link_hints": link_hints,
+        "is_root": (parent_uri is None)
+    })
+    
+    for reply_node in node.get("replies", []):
+        if isinstance(reply_node, dict):
+            await _parse_thread_nodes(reply_node, node_uri, client, token, quoted_cache, link_cache, all_nodes)
+
+async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
+    root_uri = thread_data.get("thread", {}).get("post", {}).get("uri", "unknown")
+    
+    if root_uri in THREAD_CACHE:
+        logger.info(f"Cache hit for thread: {root_uri}")
+        return THREAD_CACHE[root_uri]
+    
+    all_nodes = []
+    quoted_cache = {}
+    link_cache = {}
+    
+    await _parse_thread_nodes(thread_data.get("thread", {}), None, client, token, quoted_cache, link_cache, all_nodes)
+    
+    THREAD_CACHE[root_uri] = all_nodes
+    if len(THREAD_CACHE) > 10:
+        THREAD_CACHE.pop(next(iter(THREAD_CACHE)))
+    
     return all_nodes
 
 def parse_tavily_results(raw_data: Dict) -> str:
