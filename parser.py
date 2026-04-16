@@ -113,7 +113,7 @@ def parse_bluesky_post(raw_record: Dict) -> Dict:
             lm = _extract_link_metadata_sync(urls[0])
             if lm.get("title"):
                 link_hints.append(f"[Linked: {lm['title']}]")
-                print(f"[PARSER] Added link metadata: {lm['title']}")
+                print(f"[PARSER] Added link meta {lm['title']}")
     return {
         "uri": raw_record.get("uri", ""),
         "did": author.get("did", ""),
@@ -259,7 +259,7 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
     await collect_nodes(thread_data.get("thread", {}))
     return all_nodes
 
-def parse_tavily_results(raw_data: Dict) -> str:
+def parse_tavily_results(raw_ Dict) -> str:
     summary = ""
     if raw_data.get("answer"):
         summary = f"AI Answer: {raw_data['answer']}\n"
@@ -271,16 +271,15 @@ def parse_tavily_results(raw_data: Dict) -> str:
         summary += f"- {res.get('title', '')}: {text[:150]}...\n"
     return summary[:2000]
 
-def parse_chainbase_results(raw_data: Dict) -> str:
+def parse_chainbase_results(raw_ Dict) -> str:
     items = raw_data.get("items")
     if not items or not isinstance(items, list):
         return "No specific trends found."
     summary = ""
-    for item in items[:3]:
+    for item in items[:1]:
         keyword = item.get("keyword", "")
-        summary_text = item.get("summary", "")[:150]
+        summary_text = item.get("summary", "")[:180]
         rank = item.get("rank_status", "")
-        score = item.get("score", 0)
         if re.search(r'[a-zA-Z]', summary_text):
-            summary += f"- {keyword} [{rank}, score:{score}]: {summary_text}...\n"
-    return summary[:2000] if summary else "No specific trends found."
+            summary += f"- {keyword} [{rank}]: {summary_text}\n"
+    return summary[:280] if summary else "No specific trends found."
