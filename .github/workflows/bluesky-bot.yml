@@ -37,10 +37,54 @@ jobs:
           LAST_PROCESSED: ${{ secrets.LAST_PROCESSED }}
         run: python check.py
 
+      - name: Check LAST_NEWS
+        id: check-news
+        env:
+          LAST_NEWS: ${{ secrets.LAST_NEWS }}
+        run: |
+          python3 << 'EOF'
+          import os
+          from datetime import datetime, timezone
+          
+          raw = os.getenv('LAST_NEWS', '').strip()
+          
+          if not raw or raw == "{}" or raw == "null":
+              print("news=true")
+              exit(0)
+          
+          try:
+              last_ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+              diff = datetime.now(timezone.utc) - last_ts
+              if diff.total_seconds() >= 6 * 3600:
+                  print("news=true")
+              else:
+                  print("news=false")
+          except:
+              print("news=true")
+          EOF
+
+      - name: Check if any work
+        id: check-work
+        run: |
+          has_notifications="false"
+          if [ -f work_data.json ]; then
+            has_notifications="true"
+          fi
+          
+          needs_news="${{ steps.check-news.outputs.stdout }}"
+          
+          if [ "$has_notifications" = "true" ] || [ "$needs_news" = "news=true" ]; then
+            echo "run=true"
+          else
+            echo "run=false"
+          fi
+
       - name: Install full dependencies
+        if: contains(steps.check-work.outputs.stdout, 'run=true')
         run: pip install beautifulsoup4 llama-cpp-python trafilatura
 
       - name: Cache model
+        if: contains(steps.check-work.outputs.stdout, 'run=true')
         uses: actions/cache@v4
         with:
           path: models/qwen2.5-coder-14b-instruct-q5_k_m.gguf
@@ -49,6 +93,7 @@ jobs:
             ${{ runner.os }}-qwen25-coder-
 
       - name: Download model if not cached
+        if: contains(steps.check-work.outputs.stdout, 'run=true')
         run: |
           mkdir -p models
           FILE="models/qwen2.5-coder-14b-instruct-q5_k_m.gguf"
@@ -56,16 +101,10 @@ jobs:
             echo "Downloading model..."
             curl -L --retry 3 --retry-delay 10 -o "$FILE" \
             "https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/main/qwen2.5-coder-14b-instruct-q5_k_m.gguf?download=true"
-            SIZE=$(stat -c%s "$FILE" 2>/dev/null || echo 0)
-            if [ "$SIZE" -lt 1000000000 ]; then
-              echo "Download failed"
-              exit 1
-            fi
-          else
-            echo "Model already cached"
           fi
 
       - name: Run Bot
+        if: contains(steps.check-work.outputs.stdout, 'run=true')
         env:
           LAST_NEWS: ${{ secrets.LAST_NEWS }}
           BOT_HANDLE: ${{ secrets.BOT_HANDLE }}
