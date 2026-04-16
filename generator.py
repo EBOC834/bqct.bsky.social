@@ -55,11 +55,9 @@ def get_answer(llm, memory_context, fresh_context, search_results, user_text, do
     else:
         suffix = "Qwen"
     
-    max_reply_chars = config.RESPONSE_MAX_CHARS - len(suffix) - 1
+    max_reply_chars = config.RESPONSE_MAX_CHARS - len(suffix) - 2
     reply = reply[:max_reply_chars]
-    final = f"{reply} {suffix}"
-    
-    return final
+    return f"{reply}\n\n{suffix}"
 
 def update_summary(llm, old_summary, user_text, reply):
     fp = f"  system\n{prompts.SUMMARIZE_SYSTEM}\nuser\nPrevious: {old_summary}\nUser: {user_text}\nReply: {reply}\nNew summary:\nassistant\n"
