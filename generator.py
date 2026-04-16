@@ -31,20 +31,16 @@ def get_answer(llm, memory_context, fresh_context, search_results, user_text, do
         full_context += f"Thread Context:\n{fresh_context}\n\n"
     if search_results:
         full_context += f"Search Results:\n{search_results}\n\n"
-
     prompt = f"{prompts.ANSWER_SYSTEM}\n\n{full_context}User Question:\n{user_text}"
     fp = f"  system\n{prompts.ANSWER_SYSTEM}\n  user\n{prompt}\n  assistant\n"
-
     out = llm(fp, max_tokens=config.MAX_TOKENS, stop=["  user", "  system", "  assistant"], echo=False, temperature=config.TEMPERATURE)
     reply = out["choices"][0]["text"].strip()
-
     if do_search and search_type == "tavily":
         suffix = "Qwen | Tavily"
     elif do_search and search_type == "chainbase":
         suffix = "Qwen | Chainbase"
     else:
         suffix = "Qwen"
-
     final = f"{reply} {suffix}"
     return final[:config.RESPONSE_MAX_CHARS]
 
