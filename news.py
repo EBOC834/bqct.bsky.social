@@ -9,7 +9,7 @@ BOT_DID = os.getenv("BOT_DID")
 def should_post():
     now_utc = datetime.now(timezone.utc)
     raw = os.getenv("LAST_NEWS", "").strip()
-    if not raw:
+    if not raw or raw == "{}" or raw == "null":
         return True, now_utc.isoformat()
     try:
         last_ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
@@ -27,10 +27,10 @@ async def post_if_due(client):
     trends = await search.chainbase_search("")
     if not trends or "No specific trends" in trends or "Error" in trends:
         return False
-    lines = [l.strip() for l in trends.split("\n") if l.strip().startswith("- ")][:1]
+    lines = [l.strip() for l in trends.split("\n") if l.strip().startswith("- ")][:3]
     if len(lines) < 1:
         return False
-    post_text = "Top crypto trend:\n" + "\n".join(lines) + "\n\nQwen | Chainbase 💜💛"
+    post_text = "Top crypto trend:\n" + "\n".join(lines[:1]) + "\n\nQwen | Chainbase 💜💛"
     if len(post_text) > 300:
         post_text = post_text[:297] + "..."
     try:
