@@ -15,8 +15,10 @@ BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 BOT_DID = os.getenv("BOT_DID")
 
 async def process_item(client, item, llm):
-    uri, user_text = item["uri"], item["text"]
-    do_search, search_type = item.get("has_search", False), item.get("search_type", "tavily")
+    clean_text, has_search, search_type = parser.parse_operators(item["text"])
+    uri, user_text = item["uri"], clean_text
+    do_search = has_search
+
     rec = await bsky.get_record(client, uri)
     if not rec:
         return
@@ -70,7 +72,7 @@ async def main():
 
         if digest_due and llm:
             print("[BOT] Posting digest...")
-            await news.post_if_due(client, llm)
+            await news.post_if_due(client)
 
         if has_notifications and llm:
             print("[BOT] Processing notifications...")
