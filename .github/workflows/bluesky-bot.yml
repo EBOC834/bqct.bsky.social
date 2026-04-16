@@ -1,31 +1,31 @@
-name: Bluesky Bot (Optimized)
+name: Bluesky AI Bot
 on:
   schedule:
-    - cron: '*/50 * * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch:
+
 jobs:
-  check-and-run:
+  run-bot:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - name: Cache Python packages
+
+      - name: Cache pip
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.local/lib/python3.10/site-packages
-            ~/.cache/pip
-          key: ${{ runner.os }}-py310-deps-${{ hashFiles('requirements.txt') }}
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-py310-deps-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-py310-deps-
-      - name: Install minimal deps
-        run: pip install --user --quiet --upgrade-strategy only-if-needed httpx PyNaCl
-      - name: Check Notifications
+
+      - name: Install minimal dependencies
+        run: pip install --only-binary ':all:' httpx PyNaCl
+
+      - name: Check notifications
         id: check
         continue-on-error: true
         env:
@@ -36,46 +36,41 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           LAST_PROCESSED: ${{ secrets.LAST_PROCESSED }}
         run: python check.py
-      - name: Cache Model
-        if: steps.check.outputs.has_work == 'true'
-        uses: actions/cache@v4
-        with:
-          path: models/qwen2.5-coder-14b-instruct-q5_k_m.gguf
-          key: ${{ runner.os }}-qwen25-coder-14b-q5km-gguf-v1
-      - name: Install bot deps
-        if: steps.check.outputs.has_work == 'true'
-        run: pip install --user --quiet -r requirements.txt
-      - name: Verify Model
-        if: steps.check.outputs.has_work == 'true'
+
+      - name: Install full dependencies & cache model
         run: |
+          pip install --only-binary ':all:' beautifulsoup4 llama-cpp-python trafilatura
+          mkdir -p models
           FILE="models/qwen2.5-coder-14b-instruct-q5_k_m.gguf"
-          if [ -f "$FILE" ] && [ $(stat -c%s "$FILE") -gt 10000000000 ]; then
-            chmod +r "$FILE"
-            echo "Model verified: $(stat -c%s "$FILE") bytes"
+          if [ ! -f "$FILE" ] || [ $(stat -c%s "$FILE") -lt 1000000000 ]; then
+            echo "Downloading model..."
+            curl -L --retry 3 --retry-delay 10 -o "$FILE" \
+            "https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/main/qwen2.5-coder-14b-instruct-q5_k_m.gguf?download=true"
+            SIZE=$(stat -c%s "$FILE" 2>/dev/null || echo 0)
+            if [ "$SIZE" -lt 1000000000 ]; then
+              echo "Download failed or incomplete"
+              exit 1
+            fi
           else
-            echo "Downloading Qwen2.5-Coder-14B from HuggingFace..."
-            mkdir -p models
-            curl -L --fail -o "$FILE" "https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/main/qwen2.5-coder-14b-instruct-q5_k_m.gguf"
+            echo "Model already cached"
           fi
+
       - name: Run Bot
-        if: steps.check.outputs.has_work == 'true'
         env:
+          LAST_NEWS: ${{ secrets.LAST_NEWS }}
           BOT_HANDLE: ${{ secrets.BOT_HANDLE }}
           BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
           BOT_DID: ${{ secrets.BOT_DID }}
           OWNER_DID: ${{ secrets.OWNER_DID }}
-          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           PAT: ${{ secrets.PAT }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          CONTEXT_SECRET_COUNT: "10"
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          LAST_PROCESSED: ${{ secrets.LAST_PROCESSED }}
+          CONTEXT_SECRET_COUNT: 10
           CONTEXT_0: ${{ secrets.CONTEXT_0 }}
           CONTEXT_1: ${{ secrets.CONTEXT_1 }}
           CONTEXT_2: ${{ secrets.CONTEXT_2 }}
           CONTEXT_3: ${{ secrets.CONTEXT_3 }}
           CONTEXT_4: ${{ secrets.CONTEXT_4 }}
           CONTEXT_5: ${{ secrets.CONTEXT_5 }}
-          CONTEXT_6: ${{ secrets.CONTEXT_6 }}
-          CONTEXT_7: ${{ secrets.CONTEXT_7 }}
-          CONTEXT_8: ${{ secrets.CONTEXT_8 }}
-          CONTEXT_9: ${{ secrets.CONTEXT_9 }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: python bot.py
