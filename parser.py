@@ -142,7 +142,7 @@ def _extract_link_metadata_sync(url: str) -> Dict[str, str]:
         pass
     return {"title": "", "description": ""}
 
-async def parse_thread(thread_ Dict, token: str, client) -> List[Dict]:
+async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
     all_nodes = []
     quoted_cache = {}
     link_cache = {}
