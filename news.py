@@ -32,7 +32,7 @@ async def post_if_due(client):
         return False
     post_text = "Top crypto trend:\n" + "\n".join(lines[:1]) + "\n\nQwen | Chainbase 💜💛"
     if len(post_text) > 300:
-        post_text = post_text[:297] + "..."
+        post_text = post_text[:300]
     try:
         await bsky.post_root(client, BOT_DID, post_text)
         context_module.save_daily_post_ts(new_ts)
