@@ -60,28 +60,19 @@ async def main():
             print(f"[BOT] Auth failed: {e}")
             return
 
-        tasks = []
-        
-        digest_due, new_ts = news.should_post()
-        if digest_due:
-            tasks.append("digest")
-        
+        digest_due, _ = news.should_post()
         has_notifications = os.path.exists("work_data.json")
-        if has_notifications:
-            tasks.append("notifications")
-        
-        if not tasks:
-            print("[BOT] No tasks. Exiting.")
-            return
-        
-        print(f"[BOT] Tasks: {tasks}")
-        llm = generator.get_model()
-        
-        if "digest" in tasks:
+
+        if digest_due or has_notifications:
+            llm = generator.get_model()
+        else:
+            llm = None
+
+        if digest_due and llm:
             print("[BOT] Posting digest...")
-            await news.post_if_due(client)
-        
-        if "notifications" in tasks:
+            await news.post_if_due(client, llm)
+
+        if has_notifications and llm:
             print("[BOT] Processing notifications...")
             with open("work_data.json", "r") as f:
                 work_data = json.load(f)
