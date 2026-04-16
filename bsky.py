@@ -1,8 +1,10 @@
 import httpx
 import datetime
 import re
+import logging
 from typing import List, Dict, Optional
 
+logger = logging.getLogger(__name__)
 BASE_URL = "https://bsky.social"
 
 def get_client():
@@ -13,6 +15,7 @@ async def login(client, handle, password):
     r.raise_for_status()
     data = r.json()
     client.headers["Authorization"] = f"Bearer {data['accessJwt']}"
+    logger.info("Authenticated with Bluesky API")
     return data["accessJwt"]
 
 async def resolve_handle_to_did(client, handle: str) -> Optional[str]:
@@ -20,7 +23,7 @@ async def resolve_handle_to_did(client, handle: str) -> Optional[str]:
         r = await client.get("/xrpc/com.atproto.identity.resolveHandle", params={"handle": handle})
         if r.status_code == 200:
             return r.json().get("did")
-    except:
+    except Exception:
         pass
     return None
 
@@ -29,12 +32,10 @@ def parse_uri(uri: str) -> Optional[Dict[str, str]]:
         parts = uri.split("/")
         if len(parts) >= 5:
             return {"did": parts[2], "collection": parts[3], "rkey": parts[4], "uri": uri}
-        return None
     elif uri.startswith("https://bsky.app/profile/"):
         match = re.match(r"https://bsky\.app/profile/([^/]+)/post/([^/?#]+)", uri)
         if match:
             return {"handle": match.group(1), "rkey": match.group(2), "collection": "app.bsky.feed.post", "uri": uri}
-        return None
     return None
 
 async def normalize_uri(client, uri: str) -> Optional[str]:
