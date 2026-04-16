@@ -1,5 +1,4 @@
 import os
-import re
 import json
 import httpx
 from datetime import datetime, timezone
@@ -48,12 +47,7 @@ async def main():
         if not uri or not text:
             continue
 
-        has_search, stype = (True, "chainbase") if "!c" in text.lower() or "!chainbase" in text.lower() else (True, "tavily") if "!t" in text.lower() or "!tavily" in text.lower() else (False, "tavily")
-        
-        clean = re.sub(r'![tc]\w*\b', '', text, flags=re.IGNORECASE).strip()
-        clean = re.sub(r'\s+', ' ', clean).strip()
-
-        relevant.append({"uri": uri, "text": clean, "has_search": has_search, "search_type": stype})
+        relevant.append({"uri": uri, "text": text})
         
         ts = n.get("indexedAt", "")
         if ts and (not latest_ts or ts > latest_ts):
@@ -70,8 +64,6 @@ async def main():
         print(f"Updated LAST_PROCESSED={latest_ts}")
 
     print(f"Found {len(relevant)} relevant notification(s).")
-    for i in relevant:
-        print(f"  - {i['text'][:80]}... [search={i['has_search']}, type={i['search_type']}]")
 
 if __name__ == "__main__":
     import asyncio
