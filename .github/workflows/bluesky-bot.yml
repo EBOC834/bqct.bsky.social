@@ -9,22 +9,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-py310-deps-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-py310-deps-
-
       - name: Install minimal dependencies
         run: pip install httpx PyNaCl
-
       - name: Check notifications
         id: check
         continue-on-error: true
@@ -36,7 +30,6 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           LAST_PROCESSED: ${{ secrets.LAST_PROCESSED }}
         run: python check.py
-
       - name: Check if run needed
         id: check-run
         env:
@@ -45,11 +38,9 @@ jobs:
           python3 << 'EOF'
           import os
           from datetime import datetime, timezone
-
           has_notifications = os.path.exists('work_data.json')
           raw = os.getenv('LAST_NEWS', '').strip()
           needs_news = False
-
           if not raw or raw == "{}" or raw == "null":
               needs_news = True
           else:
@@ -60,35 +51,35 @@ jobs:
                       needs_news = True
               except:
                   needs_news = True
-
           run_bot = has_notifications or needs_news
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"status={'true' if run_bot else 'false'}\n")
           EOF
-
       - name: Install full dependencies
         if: steps.check-run.outputs.status == 'true'
         run: pip install beautifulsoup4 llama-cpp-python trafilatura
-
       - name: Cache model
         if: steps.check-run.outputs.status == 'true'
         uses: actions/cache@v4
         with:
           path: models/qwen2.5-coder-14b-instruct-q5_k_m.gguf
           key: ${{ runner.os }}-qwen25-coder-14b-q5km
-          restore-keys: |
-            ${{ runner.os }}-qwen25-coder-
-
-      - name: Download model if not cached
+      - name: Download & Verify model
         if: steps.check-run.outputs.status == 'true'
         run: |
           mkdir -p models
           FILE="models/qwen2.5-coder-14b-instruct-q5_k_m.gguf"
           if [ ! -f "$FILE" ] || [ $(stat -c%s "$FILE") -lt 1000000000 ]; then
-            curl -L --retry 3 --retry-delay 10 -o "$FILE" \
-            "https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/main/qwen2.5-coder-14b-instruct-q5_k_m.gguf?download=true"
+              curl -L --retry 3 --retry-delay 10 -o "$FILE" \
+              "https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/main/qwen2.5-coder-14b-instruct-q5_k_m.gguf?download=true"
+              EXPECTED_HASH="sha256:$(curl -sL 'https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/main/qwen2.5-coder-14b-instruct-q5_k_m.gguf?download=true' | shasum -a 256 | awk '{print $1}')"
+              ACTUAL_HASH=$(shasum -a 256 "$FILE" | awk '{print $1}')
+              if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
+                  echo "Hash mismatch! Deleting corrupted file."
+                  rm "$FILE"
+                  exit 1
+              fi
           fi
-
       - name: Run Bot
         if: steps.check-run.outputs.status == 'true'
         env:
@@ -100,12 +91,16 @@ jobs:
           PAT: ${{ secrets.PAT }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           LAST_PROCESSED: ${{ secrets.LAST_PROCESSED }}
-          CONTEXT_SECRET_COUNT: 10
+          CONTEXT_SLOT_COUNT: 10
           CONTEXT_0: ${{ secrets.CONTEXT_0 }}
           CONTEXT_1: ${{ secrets.CONTEXT_1 }}
           CONTEXT_2: ${{ secrets.CONTEXT_2 }}
           CONTEXT_3: ${{ secrets.CONTEXT_3 }}
           CONTEXT_4: ${{ secrets.CONTEXT_4 }}
           CONTEXT_5: ${{ secrets.CONTEXT_5 }}
+          CONTEXT_6: ${{ secrets.CONTEXT_6 }}
+          CONTEXT_7: ${{ secrets.CONTEXT_7 }}
+          CONTEXT_8: ${{ secrets.CONTEXT_8 }}
+          CONTEXT_9: ${{ secrets.CONTEXT_9 }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python bot.py
