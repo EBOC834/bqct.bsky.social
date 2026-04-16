@@ -1,4 +1,3 @@
-import os
 import re
 import logging
 from llama_cpp import Llama
@@ -74,12 +73,14 @@ def update_summary(llm, old_summary, user_text, reply):
 def generate_digest(llm, raw_line):
     prompt = (
         "Rewrite this crypto trend into a single, complete sentence under 260 chars. "
-        "Format exactly: '- KEYWORD [RANK]: Summary.' End with ONE period. English only.\n"
-        f"Input: {raw_line}\nOutput: - "
+        "Format exactly: 'KEYWORD [RANK]: Summary.' End with ONE period. English only.\n"
+        f"Input: {raw_line}\nOutput: "
     )
     out = llm(prompt, max_tokens=80, stop=["\n", "Input:", "Output:"], echo=False, temperature=0.1)
     text = out["choices"][0]["text"].strip()
-    if not text.startswith("- "):
-        text = "- " + text
+    
+    if text.startswith(("- ", "* ", "• ")):
+        text = text[2:].strip()
+    
     text = text.rstrip('.!? ') + '.'
     return text[:260]
