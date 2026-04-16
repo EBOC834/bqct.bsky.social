@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 import config
-import context as context_module
+import state
 import search
 import generator
 import bsky
@@ -49,7 +49,7 @@ async def process_item(client, item, llm):
     
     recent_posts = [p for p in posts if not p.get("is_root")][:10]
     
-    memory = context_module.load_context(thread_id)
+    memory = state.load_context(thread_id)
     search_results = ""
     
     if do_search:
@@ -65,7 +65,7 @@ async def process_item(client, item, llm):
             if not search.is_search_result_valid(search_results, search_type):
                 search_results = ""
     
-    full_context = context_module.merge_contexts(root_post, recent_posts, memory, search_results, user_text)
+    full_context = state.merge_contexts(root_post, recent_posts, memory, search_results, user_text)
     
     reply = generator.get_answer(llm, memory, full_context, search_results, user_text, do_search, search_type)
     
@@ -75,7 +75,7 @@ async def process_item(client, item, llm):
         return
     
     new_summary = generator.update_summary(llm, memory, user_text, reply)
-    context_module.save_context(thread_id, new_summary)
+    state.save_context(thread_id, new_summary)
 
 async def main():
     async with bsky.get_client() as client:
