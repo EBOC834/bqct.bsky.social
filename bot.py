@@ -63,24 +63,24 @@ async def main():
         digest_due, _ = news.should_post()
         has_notifications = os.path.exists("work_data.json")
 
-        if not digest_due and not has_notifications:
-            print("[BOT] No digest due and no notifications. Exiting.")
-            return
-
-        llm = generator.get_model()
-
+        # 1. Дайджест (не требует модели, только API Chainbase)
         if digest_due:
-            print("[BOT] Posting news digest...")
+            print("[BOT] Digest is due. Posting news...")
             await news.post_if_due(client)
 
-        if has_notifications and llm:
-            print("[BOT] Processing notifications...")
+        # 2. Уведомления (требует модель)
+        if has_notifications:
+            print("[BOT] Notifications found. Loading model...")
+            llm = generator.get_model()
             with open("work_data.json", "r") as f:
                 work_data = json.load(f)
             if work_data.get("items"):
                 for item in work_data["items"]:
                     await process_item(client, item, llm)
                     await asyncio.sleep(1)
+        
+        if not digest_due and not has_notifications:
+            print("[BOT] Nothing to do. Exiting.")
 
 if __name__ == "__main__":
     asyncio.run(main())
