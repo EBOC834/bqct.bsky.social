@@ -30,27 +30,38 @@ def _write_secret(name, value):
     url = f"https://api.github.com/repos/{REPO}/actions/secrets/{name}"
     headers = {"Authorization": f"token {PAT}", "Accept": "application/vnd.github.v3+json"}
     payload = {"encrypted_value": encrypted_value, "key_id": key_data["key_id"]}
-    r = httpx.put(url, headers=headers, json=payload, timeout=15)
-    r.raise_for_status()
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            r = httpx.put(url, headers=headers, json=payload, timeout=15)
+            r.raise_for_status()
+            return
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise
+            wait_time = (2 ** attempt) + 1
+            logger.warning(f"Secrets API error, retrying in {wait_time}s: {e}")
+            time.sleep(wait_time)
 
-def _parse_slot(i):
+def _read_slot(i):
     raw = os.getenv(f"CONTEXT_{i}", "")
     if not raw:
         return None
     try:
         return json.loads(raw)
-    except:
+    except Exception:
         return None
 
 def load_context(thread_id):
     for i in range(SLOT_COUNT):
-        data = _parse_slot(i)
+        data = _read_slot(i)
         if data and data.get("thread_id") == thread_id:
             return data.get("content", "")
     return ""
 
 def save_context(thread_id, content):
-    slots = [(i, _parse_slot(i)) for i in range(SLOT_COUNT)]
+    slots = [(i, _read_slot(i)) for i in range(SLOT_COUNT)]
     target_idx = None
     for i, data in slots:
         if data and data.get("thread_id") == thread_id:
@@ -109,7 +120,7 @@ def merge_contexts(root_post: dict, recent_posts: list, memory: str, search_resu
     return "\n".join(parts)
 
 def load_daily_post_ts():
-    raw = os.getenv("LAST_NEWS", "")
+    raw = os.getenv("LAST_NEWS", "").strip()
     return raw if raw else None
 
 def save_daily_post_ts(ts_str):
