@@ -18,16 +18,23 @@ async def main():
             "https://bsky.social/xrpc/com.atproto.server.createSession",
             json={"identifier": BOT_HANDLE, "password": BOT_PASSWORD}
         )
-        login.raise_for_status()
-        token = login.json()["accessJwt"]
+        if login.status_code != 200:
+            print(f"Login failed: {login.status_code}")
+            return
+        token = login.json().get("accessJwt")
+        if not token:
+            print("No access token")
+            return
         
         url = "https://bsky.social/xrpc/app.bsky.notification.listNotifications?limit=50"
-        if LAST_PROCESSED and len(LAST_PROCESSED) > 10:
+        if LAST_PROCESSED and "T" in LAST_PROCESSED:
             url += f"&seenAt={LAST_PROCESSED}"
             
         headers = {"Authorization": f"Bearer {token}"}
         r = await client.get(url, headers=headers, timeout=30)
-        r.raise_for_status()
+        if r.status_code != 200:
+            print(f"Failed to fetch notifications: {r.status_code}")
+            return
         notifs = r.json().get("notifications", [])
 
     if not notifs:
