@@ -12,6 +12,8 @@ def get_model():
             model_path=config.MODEL_PATH,
             n_ctx=config.MODEL_N_CTX,
             n_threads=config.MODEL_N_THREADS,
+            n_batch=256,
+            n_ubatch=128,
             verbose=False
         )
     except Exception as e:
