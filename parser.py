@@ -142,7 +142,7 @@ def _extract_link_metadata_sync(url: str) -> Dict[str, str]:
         pass
     return {"title": "", "description": ""}
 
-async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
+async def parse_thread(thread_ Dict, token: str, client) -> List[Dict]:
     all_nodes = []
     quoted_cache = {}
     link_cache = {}
@@ -259,7 +259,7 @@ async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
     await collect_nodes(thread_data.get("thread", {}))
     return all_nodes
 
-def parse_tavily_results(raw_ Dict) -> str:
+def parse_tavily_results(raw_data: Dict) -> str:
     summary = ""
     if raw_data.get("answer"):
         summary = f"AI Answer: {raw_data['answer']}\n"
@@ -271,7 +271,7 @@ def parse_tavily_results(raw_ Dict) -> str:
         summary += f"- {res.get('title', '')}: {text[:150]}...\n"
     return summary[:2000]
 
-def parse_chainbase_results(raw_ Dict) -> str:
+def parse_chainbase_results(raw_data: Dict) -> str:
     items = raw_data.get("items")
     if not items or not isinstance(items, list):
         return "No specific trends found."
