@@ -27,10 +27,10 @@ async def post_if_due(client):
     trends = await search.chainbase_search("")
     if not trends or "No specific trends" in trends or "Error" in trends:
         return False
-    lines = [l.strip() for l in trends.split("\n") if l.strip().startswith("- ")][:3]
-    if len(lines) < 3:
+    lines = [l.strip() for l in trends.split("\n") if l.strip().startswith("- ")][:1]
+    if len(lines) < 1:
         return False
-    post_text = "Top 3 crypto trends:\n" + "\n".join(lines) + "\n\nQwen | Chainbase 💜💛"
+    post_text = "Top crypto trend:\n" + "\n".join(lines) + "\n\nQwen | Chainbase 💜💛"
     if len(post_text) > 300:
         post_text = post_text[:297] + "..."
     try:
