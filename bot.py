@@ -63,15 +63,18 @@ async def main():
         digest_due, _ = news.should_post()
         has_notifications = os.path.exists("work_data.json")
 
-        if digest_due or has_notifications:
-            llm = generator.get_model()
-        else:
-            llm = None
+        if not digest_due and not has_notifications:
+            print("[BOT] No digest due and no notifications. Exiting.")
+            return
+
+        llm = generator.get_model()
 
         if digest_due:
+            print("[BOT] Posting news digest...")
             await news.post_if_due(client)
 
         if has_notifications and llm:
+            print("[BOT] Processing notifications...")
             with open("work_data.json", "r") as f:
                 work_data = json.load(f)
             if work_data.get("items"):
