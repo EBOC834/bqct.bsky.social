@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import context as context_module
 import search
 import bsky
+import generator
 
 BOT_DID = os.getenv("BOT_DID")
 
@@ -20,24 +21,26 @@ def should_post():
     except:
         return True, now_utc.isoformat()
 
-async def post_if_due(client):
+async def post_if_due(client, llm):
     should_post_flag, new_ts = should_post()
     if not should_post_flag:
         return False
     trends = await search.chainbase_search("")
     if not trends or "No specific trends" in trends or "Error" in trends:
         return False
-    lines = [l.strip() for l in trends.split("\n") if l.strip().startswith("- ")][:3]
-    if len(lines) < 1:
+    lines = [l.strip() for l in trends.split("\n") if l.strip().startswith("- ")]
+    if not lines:
         return False
-    post_text = "Top crypto trend:\n" + "\n".join(lines[:1]) + "\n\nQwen | Chainbase 💜💛"
+
+    final_line = generator.generate_digest(llm, lines[0])
+    post_text = final_line + "\n\nQwen | Chainbase TOPS 💜💛"
     if len(post_text) > 300:
-        post_text = post_text[:300]
-        if ' ' in post_text:
-            post_text = post_text[:post_text.rfind(' ')]
+        post_text = post_text[:300].rsplit(' ', 1)[0] + "\n\nQwen | Chainbase TOPS 💜💛"
+
     try:
         await bsky.post_root(client, BOT_DID, post_text)
         context_module.save_daily_post_ts(new_ts)
         return True
-    except:
+    except Exception as e:
+        print(f"[NEWS] Post failed: {e}")
         return False
