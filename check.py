@@ -8,7 +8,7 @@ BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 OWNER_DID = os.getenv("OWNER_DID")
 PAT = os.getenv("PAT")
 REPO = os.getenv("GITHUB_REPOSITORY")
-LAST_PROCESSED = os.getenv("LAST_PROCESSED", "")
+LAST_PROCESSED = os.getenv("LAST_PROCESSED", "").strip()
 
 async def main():
     print(f"Checking notifications since {LAST_PROCESSED or 'beginning'}")
@@ -22,7 +22,7 @@ async def main():
         token = login.json()["accessJwt"]
         
         url = "https://bsky.social/xrpc/app.bsky.notification.listNotifications?limit=50"
-        if LAST_PROCESSED:
+        if LAST_PROCESSED and len(LAST_PROCESSED) > 10:
             url += f"&seenAt={LAST_PROCESSED}"
             
         headers = {"Authorization": f"Bearer {token}"}
