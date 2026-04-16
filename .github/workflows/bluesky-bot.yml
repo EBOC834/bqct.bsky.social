@@ -37,44 +37,10 @@ jobs:
           LAST_PROCESSED: ${{ secrets.LAST_PROCESSED }}
         run: python check.py
 
-      - name: Check if run is needed
-        id: check-run
-        continue-on-error: true
-        env:
-          LAST_NEWS: ${{ secrets.LAST_NEWS }}
-        run: |
-          if [ -f work_data.json ]; then
-            echo "Notifications found. Running bot."
-            exit 0
-          fi
-          
-          python -c "
-          import os
-          from datetime import datetime, timezone
-          raw = os.getenv('LAST_NEWS', '').strip()
-          if not raw or raw == '{}' or raw == 'null':
-              print('LAST_NEWS empty. Running bot.')
-              exit(0)
-          try:
-              last_ts = datetime.fromisoformat(raw.replace('Z', '+00:00'))
-              diff = datetime.now(timezone.utc) - last_ts
-              if diff.total_seconds() >= 6 * 3600:
-                  print('6h passed. Running bot.')
-                  exit(0)
-              else:
-                  print('Not 6h yet. Exiting.')
-                  exit(1)
-          except Exception as e:
-              print(f'Error: {e}. Running bot.')
-              exit(0)
-          "
-
       - name: Install full dependencies
-        if: steps.check-run.outcome == 'success'
         run: pip install beautifulsoup4 llama-cpp-python trafilatura
 
       - name: Cache model
-        if: steps.check-run.outcome == 'success'
         uses: actions/cache@v4
         with:
           path: models/qwen2.5-coder-14b-instruct-q5_k_m.gguf
@@ -83,7 +49,6 @@ jobs:
             ${{ runner.os }}-qwen25-coder-
 
       - name: Download model if not cached
-        if: steps.check-run.outcome == 'success'
         run: |
           mkdir -p models
           FILE="models/qwen2.5-coder-14b-instruct-q5_k_m.gguf"
@@ -101,7 +66,6 @@ jobs:
           fi
 
       - name: Run Bot
-        if: steps.check-run.outcome == 'success'
         env:
           LAST_NEWS: ${{ secrets.LAST_NEWS }}
           BOT_HANDLE: ${{ secrets.BOT_HANDLE }}
