@@ -1,25 +1,7 @@
 import os
-import sys
-from datetime import datetime, timezone
-
-raw = os.getenv("LAST_NEWS", "").strip()
-has_notifications = os.path.exists("work_data.json")
-
-if not has_notifications:
-    if not raw or raw == "{}" or raw == "null":
-        pass
-    else:
-        try:
-            last_ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            diff = datetime.now(timezone.utc) - last_ts
-            if diff.total_seconds() < 6 * 3600:
-                print("[BOT] No notifications and 6h not passed. Exiting.")
-                sys.exit(0)
-        except:
-            pass
-
 import json
 import asyncio
+
 import config
 import context as context_module
 import search
@@ -78,16 +60,29 @@ async def main():
             print(f"[BOT] Auth failed: {e}")
             return
 
-        digest_due, _ = news.should_post()
-        has_notifications = os.path.exists("work_data.json")
-
+        tasks = []
+        
+        digest_due, new_ts = news.should_post()
         if digest_due:
-            print("[BOT] Digest is due. Posting news...")
-            await news.post_if_due(client)
-
+            tasks.append("digest")
+        
+        has_notifications = os.path.exists("work_data.json")
         if has_notifications:
-            print("[BOT] Notifications found. Loading model...")
-            llm = generator.get_model()
+            tasks.append("notifications")
+        
+        if not tasks:
+            print("[BOT] No tasks. Exiting.")
+            return
+        
+        print(f"[BOT] Tasks: {tasks}")
+        llm = generator.get_model()
+        
+        if "digest" in tasks:
+            print("[BOT] Posting digest...")
+            await news.post_if_due(client)
+        
+        if "notifications" in tasks:
+            print("[BOT] Processing notifications...")
             with open("work_data.json", "r") as f:
                 work_data = json.load(f)
             if work_data.get("items"):
