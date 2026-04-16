@@ -4,8 +4,12 @@ import asyncio
 import httpx
 import base64
 import json
+import logging
 from nacl import encoding, public
 from datetime import datetime, timezone
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger(__name__)
 
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
@@ -39,20 +43,20 @@ async def update_last_processed_secret(value):
         async with httpx.AsyncClient() as c:
             r = await c.put(f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/LAST_PROCESSED", headers={"Authorization": f"token {PAT}"}, json={"encrypted_value": enc, "key_id": kd["key_id"]})
             if r.status_code in (201, 204):
-                print(f"Updated LAST_PROCESSED={value}", flush=True)
+                logger.info(f"Updated LAST_PROCESSED={value}")
                 return True
     except Exception as e:
-        print(f"Failed to update secret: {e}", flush=True)
+        logger.error(f"Failed to update secret: {e}")
         return False
 
 async def main():
     try:
         if is_empty(LAST_PROCESSED):
             now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-            print(f"FIRST RUN: Setting timestamp to NOW: {now}", flush=True)
+            logger.info(f"FIRST RUN: Setting timestamp to NOW: {now}")
             await update_last_processed_secret(now)
             sys.exit(0)
-        print(f"Checking notifications since {LAST_PROCESSED}", flush=True)
+        logger.info(f"Checking notifications since {LAST_PROCESSED}")
         async with httpx.AsyncClient() as client:
             r = await client.post("https://bsky.social/xrpc/com.atproto.server.createSession", json={"identifier": BOT_HANDLE, "password": BOT_PASSWORD}, timeout=30)
             if r.status_code != 200:
@@ -83,13 +87,9 @@ async def main():
                 has_trigger = has_t or has_c
                 has_mention = f"@{BOT_HANDLE}" in txt
                 if has_trigger or has_mention or reason == "reply":
-                    search_type = None
-                    if has_t:
-                        search_type = "tavily"
-                    elif has_c:
-                        search_type = "chainbase"
+                    search_type = "tavily" if has_t else ("chainbase" if has_c else None)
                     relevant.append({"uri": uri, "text": txt, "has_search": has_trigger, "search_type": search_type})
-                    print(f"Relevant: {txt[:30]}...", flush=True)
+                    logger.info(f"Relevant notification found: {txt[:30]}...")
             if relevant:
                 github_output = os.getenv("GITHUB_OUTPUT", "")
                 if github_output:
@@ -98,13 +98,13 @@ async def main():
                 await update_last_processed_secret(latest_idx)
                 with open("work_data.json", "w") as f:
                     json.dump({"items": relevant}, f)
-                print(f"Saved {len(relevant)} items", flush=True)
+                logger.info(f"Saved {len(relevant)} items to work_data.json")
             else:
                 if notifications:
                     await update_last_processed_secret(latest_idx)
-                print("No new relevant notifications.", flush=True)
+                logger.info("No new relevant notifications.")
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+        logger.error(f"Check failed: {e}")
         sys.exit(0)
 
 if __name__ == "__main__":
