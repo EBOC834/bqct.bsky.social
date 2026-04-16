@@ -274,12 +274,19 @@ def parse_tavily_results(raw_data: Dict) -> str:
 def parse_chainbase_results(raw_data: Dict) -> str:
     items = raw_data.get("items")
     if not items or not isinstance(items, list):
-        return "No specific trends found."
-    summary = ""
-    for item in items[:1]:
-        keyword = item.get("keyword", "")
-        summary_text = item.get("summary", "")[:100]
-        rank = item.get("rank_status", "")
-        if re.search(r'[a-zA-Z]', summary_text):
-            summary += f"- {keyword} [{rank}]: {summary_text}\n"
-    return summary[:250] if summary else "No specific trends found."
+        return ""
+    item = items[0]
+    keyword = item.get("keyword", "")
+    score = item.get("score", 0)
+    text = item.get("summary", "").strip()
+    if not text:
+        return ""
+    if len(text) > 220:
+        last_dot = text.rfind('.', 0, 220)
+        if last_dot > 0:
+            text = text[:last_dot + 1]
+        else:
+            text = text[:220].rsplit(' ', 1)[0] + '.'
+    elif not text.endswith(('.', '!', '?')):
+        text += '.'
+    return f"- {keyword} [score:{int(score)}]: {text}"
