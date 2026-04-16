@@ -1,7 +1,25 @@
 import os
+import sys
+from datetime import datetime, timezone
+
+raw = os.getenv("LAST_NEWS", "").strip()
+has_notifications = os.path.exists("work_data.json")
+
+if not has_notifications:
+    if not raw or raw == "{}" or raw == "null":
+        pass
+    else:
+        try:
+            last_ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            diff = datetime.now(timezone.utc) - last_ts
+            if diff.total_seconds() < 6 * 3600:
+                print("[BOT] No notifications and 6h not passed. Exiting.")
+                sys.exit(0)
+        except:
+            pass
+
 import json
 import asyncio
-
 import config
 import context as context_module
 import search
@@ -76,9 +94,6 @@ async def main():
                 for item in work_data["items"]:
                     await process_item(client, item, llm)
                     await asyncio.sleep(1)
-        
-        if not digest_due and not has_notifications:
-            print("[BOT] Nothing to do. Exiting.")
 
 if __name__ == "__main__":
     asyncio.run(main())
