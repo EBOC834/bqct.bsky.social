@@ -4,19 +4,24 @@ import json
 import httpx
 from datetime import datetime, timezone
 
+BOT_HANDLE = os.getenv("BOT_HANDLE")
+BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 OWNER_DID = os.getenv("OWNER_DID")
-PAT = os.getenv("PAT")
 LAST_PROCESSED = os.getenv("LAST_PROCESSED", "")
 
-async def fetch_notifications(since):
+async def login(client, handle, password):
+    await client.post(
+        "https://bsky.social/xrpc/com.atproto.server.createSession",
+        json={"identifier": handle, "password": password}
+    )
+
+async def fetch_notifications(client, since):
     url = "https://bsky.social/xrpc/app.bsky.notification.listNotifications?limit=50"
     if since:
         url += f"&seenAt={since}"
-    headers = {"Authorization": f"Bearer {PAT}"} if PAT else {}
-    async with httpx.AsyncClient() as c:
-        r = await c.get(url, headers=headers, timeout=30)
-        if r.status_code == 200:
-            return r.json().get("notifications", [])
+    r = await client.get(url, timeout=30)
+    if r.status_code == 200:
+        return r.json().get("notifications", [])
     return []
 
 def parse_operators(text):
@@ -29,7 +34,11 @@ def parse_operators(text):
 
 async def main():
     print(f"Checking notifications since {LAST_PROCESSED or 'beginning'}")
-    notifs = await fetch_notifications(LAST_PROCESSED)
+    
+    async with httpx.AsyncClient() as client:
+        await login(client, BOT_HANDLE, BOT_PASSWORD)
+        notifs = await fetch_notifications(client, LAST_PROCESSED)
+    
     if not notifs:
         print("No new notifications.")
         return
@@ -38,12 +47,16 @@ async def main():
     latest_ts = LAST_PROCESSED
 
     for n in notifs:
-        if n.get("author", {}).get("did") != OWNER_DID:
+        author_did = n.get("author", {}).get("did", "")
+        if author_did != OWNER_DID:
             continue
-        uri = n.get("record", {}).get("uri")
+        
+        record = n.get("record", {})
+        uri = record.get("uri") if isinstance(record, dict) else None
         if not uri:
             continue
-        text = n.get("reasonSubject", "") or n.get("record", {}).get("text", "")
+        
+        text = record.get("text", "") if isinstance(record, dict) else ""
         if not text:
             continue
 
@@ -52,6 +65,7 @@ async def main():
         clean = re.sub(r'\s+', ' ', clean).strip()
 
         relevant.append({"uri": uri, "text": clean, "has_search": has_search, "search_type": stype})
+        
         ts = n.get("indexedAt", "")
         if ts and (not latest_ts or ts > latest_ts):
             latest_ts = ts
