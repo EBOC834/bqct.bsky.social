@@ -57,7 +57,7 @@ def update_summary(llm, old_summary, user_text, reply):
 def generate_digest(llm, raw_line):
     prompt = (
         "Rewrite this crypto trend into a single, complete sentence under 260 chars. "
-        "Format exactly: '- KEYWORD [RANK]: Summary.' End with a period. English only.\n\n"
+        "Format exactly: '- KEYWORD [RANK]: Summary.' End with ONE period. English only.\n\n"
         f"Input: {raw_line}\n\n"
         "Output: - "
     )
@@ -65,6 +65,5 @@ def generate_digest(llm, raw_line):
     text = out["choices"][0]["text"].strip()
     if not text.startswith("- "):
         text = "- " + text
-    if not text.endswith(('.', '!', '?')):
-        text += "."
+    text = text.rstrip('.!? ') + '.'
     return text[:260]
