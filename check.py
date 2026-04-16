@@ -1,14 +1,11 @@
 import os
 import json
 import httpx
-from datetime import datetime, timezone
 
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 OWNER_DID = os.getenv("OWNER_DID")
-PAT = os.getenv("PAT")
-REPO = os.getenv("GITHUB_REPOSITORY")
-LAST_PROCESSED = os.getenv("LAST_PROCESSED", "").strip()
+LAST_PROCESSED = os.getenv("LAST_PROCESSED", "")
 
 async def main():
     print(f"Checking notifications since {LAST_PROCESSED or 'beginning'}")
@@ -19,21 +16,17 @@ async def main():
             json={"identifier": BOT_HANDLE, "password": BOT_PASSWORD}
         )
         if login.status_code != 200:
-            print(f"Login failed: {login.status_code}")
             return
         token = login.json().get("accessJwt")
         if not token:
-            print("No access token")
             return
         
         url = "https://bsky.social/xrpc/app.bsky.notification.listNotifications?limit=50"
-        if LAST_PROCESSED and "T" in LAST_PROCESSED:
+        if LAST_PROCESSED:
             url += f"&seenAt={LAST_PROCESSED}"
-            
         headers = {"Authorization": f"Bearer {token}"}
         r = await client.get(url, headers=headers, timeout=30)
         if r.status_code != 200:
-            print(f"Failed to fetch notifications: {r.status_code}")
             return
         notifs = r.json().get("notifications", [])
 
@@ -43,34 +36,28 @@ async def main():
 
     relevant = []
     latest_ts = LAST_PROCESSED
-
     for n in notifs:
         if n.get("author", {}).get("did") != OWNER_DID:
             continue
-            
         record = n.get("record", {})
         uri = record.get("uri") if isinstance(record, dict) else None
         text = record.get("text", "") if isinstance(record, dict) else ""
         if not uri or not text:
             continue
-
         relevant.append({"uri": uri, "text": text})
-        
         ts = n.get("indexedAt", "")
         if ts and (not latest_ts or ts > latest_ts):
             latest_ts = ts
 
     if not relevant:
-        print("No new relevant notifications.")
+        print("No relevant notifications.")
         return
 
     with open("work_data.json", "w") as f:
         json.dump({"items": relevant}, f)
-
     if latest_ts:
         print(f"Updated LAST_PROCESSED={latest_ts}")
-
-    print(f"Found {len(relevant)} relevant notification(s).")
+    print(f"Found {len(relevant)} notification(s).")
 
 if __name__ == "__main__":
     import asyncio
