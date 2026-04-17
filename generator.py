@@ -1,4 +1,5 @@
 import re
+import json
 import logging
 from llama_cpp import Llama
 import config
@@ -22,7 +23,6 @@ def get_model():
 
 def extract_search_params(llm, user_text, root_post_text=""):
     clean_user_text = re.sub(r'\s*![tc]\b', '', user_text, flags=re.IGNORECASE).strip()
-    
     if root_post_text:
         clean_root = re.sub(r'\s*![tc]\b', '', root_post_text, flags=re.IGNORECASE).strip()
         context_for_query = f"Topic: {clean_root}\nQuestion: {clean_user_text}"
@@ -32,7 +32,6 @@ def extract_search_params(llm, user_text, root_post_text=""):
     fp = f"  system\n{prompts.QUERY_REFINE_SYSTEM}\nuser\n{context_for_query}\nassistant\n"
     out = llm(fp, max_tokens=64, stop=["  user", "  system", "  assistant"], echo=False, temperature=0.3)
     query = out["choices"][0]["text"].strip()
-    
     query = re.sub(r'\s*![tc]\b', '', query, flags=re.IGNORECASE).strip()
     
     params = {"query": query if query else clean_user_text[:100]}
@@ -40,7 +39,6 @@ def extract_search_params(llm, user_text, root_post_text=""):
         params["time_range"] = "day"
     if "news" in clean_user_text.lower():
         params["topic"] = "news"
-    
     return params
 
 def get_answer(llm, memory_context, fresh_context, search_results, user_text, do_search, search_type):
@@ -80,9 +78,28 @@ def generate_digest(llm, raw_line):
     )
     out = llm(prompt, max_tokens=80, stop=["\n", "Input:", "Output:"], echo=False, temperature=0.1)
     text = out["choices"][0]["text"].strip()
-    
     if text.startswith(("- ", "* ", "• ")):
         text = text[2:].strip()
-    
     text = text.rstrip('.!? ') + '.'
     return text[:260]
+
+def generate_engagement_plan(llm, digest_text, comments):
+    comments_block = "\n".join([f"[{i}] @{c['handle']}: {c['text']}" for i, c in enumerate(comments)])
+    prompt = (
+        f"Digest Topic:\n{digest_text}\n\n"
+        f"Comments:\n{comments_block}\n\n"
+        "Task: Identify relevant, substantive comments. Ignore spam, bots, emojis-only, or off-topic.\n"
+        "Return a JSON array of objects: [{\"index\": 0, \"text\": \"...\", \"reply\": \"...\"}]\n"
+        "Max 10 items. Reply must be <100 chars, English, helpful.\n"
+        "Output ONLY valid JSON."
+    )
+    out = llm(prompt, max_tokens=512, temperature=0.3)
+    raw = out["choices"][0]["text"].strip()
+    try:
+        start = raw.find('[')
+        end = raw.rfind(']') + 1
+        if start != -1 and end != -1:
+            return json.loads(raw[start:end])
+    except Exception:
+        pass
+    return []
