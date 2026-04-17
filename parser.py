@@ -190,7 +190,7 @@ async def _parse_thread_nodes(node, parent_uri=None, client=None, token=None, qu
         if isinstance(reply_node, dict):
             await _parse_thread_nodes(reply_node, node_uri, client, token, quoted_cache, link_cache, all_nodes)
 
-async def parse_thread(thread_ Dict, token: str, client) -> List[Dict]:
+async def parse_thread(thread_data: Dict, token: str, client) -> List[Dict]:
     root_uri = thread_data.get("thread", {}).get("post", {}).get("uri", "unknown")
     
     if root_uri in THREAD_CACHE:
@@ -221,7 +221,7 @@ def parse_tavily_results(raw_data: Dict) -> str:
         summary += f"- {res.get('title', '')}: {text[:150]}...\n"
     return summary[:2000]
 
-def parse_chainbase_results(raw_ Dict) -> str:
+def parse_chainbase_results(raw_data: Dict) -> str:
     items = raw_data.get("items")
     if not items or not isinstance(items, list):
         return ""
