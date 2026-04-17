@@ -56,7 +56,7 @@ async def post_if_due(client, llm):
         return False
 
     signature = "\n\nQwen | Chainbase TOPS 💜💛"
-    
+
     if digest_type == "full":
         header = "TOP TREND:\n\n"
         item = trends[0]
@@ -64,33 +64,38 @@ async def post_if_due(client, llm):
         score = item.get("score", 0)
         rank_status = item.get("rank_status", "same")
         trend_emoji = get_trend_emoji(rank_status)
-        
+
         raw_line = f"- {keyword} [score:{int(score)}]: {item.get('summary', '')}"
         final_line = generator.generate_digest(llm, raw_line)
         if final_line.startswith("- "):
             final_line = final_line[2:]
-        
+
         final_line = f"{trend_emoji} {final_line}"
-        
+
         max_content_len = 300 - len(header) - len(signature)
         if len(final_line) > max_content_len:
             final_line = final_line[:max_content_len].rsplit(' ', 1)[0]
-        
+
         post_text = header + final_line + signature
-        
+
     else:
         header = "TOP TRENDS:\n\n"
+        base_len = len(header) + len(signature)
         lines = []
-        for item in trends[:3]:
+
+        for item in trends:
             keyword = item.get("keyword", "Unknown")
             score = item.get("score", 0)
             rank_status = item.get("rank_status", "same")
             trend_emoji = get_trend_emoji(rank_status)
             line = f"{trend_emoji} {keyword} [{int(score)}]"
-            if len("\n".join(lines + [line])) + len(header) + len(signature) > 295:
+
+            test_content = "\n".join(lines + [line])
+            if len(header) + len(test_content) + len(signature) <= 300:
+                lines.append(line)
+            else:
                 break
-            lines.append(line)
-        
+
         if not lines:
             return False
         post_text = header + "\n".join(lines) + signature
