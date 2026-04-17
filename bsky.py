@@ -69,11 +69,27 @@ async def get_thread_raw(client, root_uri: str, token: str):
     )
     return r.json() if r.status_code == 200 else None
 
-async def post_record(client, bot_did, text, reply_obj=None):
+def build_hashtag_facets(text: str, tags: list) -> list:
+    facets = []
+    for tag in tags:
+        target = f"#{tag}"
+        idx = text.find(target)
+        if idx != -1:
+            start_bytes = len(text[:idx].encode("utf-8"))
+            end_bytes = len(text[:idx + len(target)].encode("utf-8"))
+            facets.append({
+                "index": {"byteStart": start_bytes, "byteEnd": end_bytes},
+                "features": [{"$type": "app.bsky.richtext.facet#tag", "tag": tag}]
+            })
+    return facets
+
+async def post_record(client, bot_did, text, reply_obj=None, facets=None):
     created_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     record = {"$type": "app.bsky.feed.post", "text": text, "createdAt": created_at}
     if reply_obj:
         record["reply"] = reply_obj
+    if facets:
+        record["facets"] = facets
     payload = {"repo": bot_did, "collection": "app.bsky.feed.post", "record": record}
     r = await client.post("/xrpc/com.atproto.repo.createRecord", json=payload)
     r.raise_for_status()
@@ -89,8 +105,8 @@ async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, pare
         reply_obj = {"root": {"uri": effective_root_uri, "cid": effective_root_cid}, "parent": {"uri": parent_uri, "cid": parent_cid}}
     return await post_record(client, bot_did, text, reply_obj)
 
-async def post_root(client, bot_did, text):
-    return await post_record(client, bot_did, text)
+async def post_root(client, bot_did, text, facets=None):
+    return await post_record(client, bot_did, text, facets=facets)
 
 async def like_post(client, bot_did, subject_uri, subject_cid):
     created_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
