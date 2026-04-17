@@ -58,7 +58,7 @@ async def post_if_due(client, llm):
     signature = "\n\nQwen | Chainbase TOPS 💜💛"
     
     if digest_type == "full":
-        header = "TOP 1:\n\n"
+        header = "TOP TREND:\n\n"
         item = trends[0]
         keyword = item.get("keyword", "")
         score = item.get("score", 0)
@@ -79,7 +79,7 @@ async def post_if_due(client, llm):
         post_text = header + final_line + signature
         
     else:
-        header = "TOP 3 CRYPTO:\n\n"
+        header = "TOP TRENDS:\n\n"
         lines = []
         for item in trends[:3]:
             keyword = item.get("keyword", "Unknown")
