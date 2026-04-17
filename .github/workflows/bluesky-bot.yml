@@ -52,7 +52,7 @@ jobs:
               try:
                   last_ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
                   diff = datetime.now(timezone.utc) - last_ts
-                  if diff.total_seconds() >= 6 * 3600:
+                  if diff.total_seconds() >= 3 * 3600:
                       needs_news = True
               except:
                   needs_news = True
