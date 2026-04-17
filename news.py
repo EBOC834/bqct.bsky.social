@@ -46,11 +46,17 @@ async def post_if_due(client, llm):
     if not lines:
         return False
 
-    final_line = generator.generate_digest(llm, lines[0])
-    post_text = final_line + "\n\nQwen | Chainbase TOPS 💜💛"
+    header = "crypto trend №1 in X:\n\n"
+    signature = "\n\nQwen | Chainbase TOPS 💜💛"
+    max_content_len = 300 - len(header) - len(signature)
 
-    if len(post_text) > 300:
-        post_text = post_text[:300].rsplit(' ', 1)[0] + "\n\nQwen | Chainbase TOPS 💜💛"
+    final_line = generator.generate_digest(llm, lines[0])
+    if final_line.startswith("- "):
+        final_line = final_line[2:]
+    if len(final_line) > max_content_len:
+        final_line = final_line[:max_content_len].rsplit(' ', 1)[0]
+
+    post_text = header + final_line + signature
 
     try:
         resp = await bsky.post_root(client, BOT_DID, post_text)
