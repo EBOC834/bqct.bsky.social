@@ -5,6 +5,7 @@ import state
 import search
 import bsky
 import generator
+import engagement
 
 logger = logging.getLogger(__name__)
 BOT_DID = os.getenv("BOT_DID")
@@ -27,23 +28,35 @@ async def post_if_due(client, llm):
     should_post_flag, new_ts = should_post()
     if not should_post_flag:
         return False
-    
+
+    last_digest_uri = state.load_last_digest_uri()
+    if last_digest_uri and llm:
+        try:
+            last_rec = await bsky.get_record(client, last_digest_uri)
+            last_digest_text = last_rec["value"].get("text", "") if last_rec else ""
+            await engagement.process_digest_engagement(client, llm, last_digest_uri, last_digest_text)
+        except Exception as e:
+            logger.error(f"Failed to process previous digest engagement: {e}")
+
     trends = await search.chainbase_search("")
     if not trends or "No specific trends" in trends or "Error" in trends:
         return False
-    
+
     lines = [l.strip() for l in trends.split("\n") if l.strip().startswith("- ")]
     if not lines:
         return False
-    
+
     final_line = generator.generate_digest(llm, lines[0])
     post_text = final_line + "\n\nQwen | Chainbase TOPS 💜💛"
-    
+
     if len(post_text) > 300:
         post_text = post_text[:300].rsplit(' ', 1)[0] + "\n\nQwen | Chainbase TOPS 💜💛"
-    
+
     try:
-        await bsky.post_root(client, BOT_DID, post_text)
+        resp = await bsky.post_root(client, BOT_DID, post_text)
+        new_uri = resp.get("uri")
+        if new_uri:
+            state.save_last_digest_uri(new_uri)
         state.save_daily_post_ts(new_ts)
         return True
     except Exception as e:
