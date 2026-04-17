@@ -85,16 +85,6 @@ def save_context(thread_id, content):
     except Exception as e:
         logger.error(f"Failed to save context: {e}")
 
-def load_last_digest_uri():
-    return os.getenv("LAST_DIGEST_URI", "").strip() or None
-
-def save_last_digest_uri(uri):
-    try:
-        _write_secret("LAST_DIGEST_URI", uri)
-        logger.info(f"Saved LAST_DIGEST_URI: {uri}")
-    except Exception as e:
-        logger.error(f"Failed to save LAST_DIGEST_URI: {e}")
-
 def merge_contexts(root_post: dict, recent_posts: list, memory: str, search_results: str, user_question: str = "") -> str:
     parts = []
     if root_post and root_post.get("text"):
@@ -139,3 +129,13 @@ def save_daily_post_ts(ts_str):
         logger.info("Saved LAST_NEWS timestamp")
     except Exception as e:
         logger.error(f"Failed to save LAST_NEWS: {e}")
+
+def load_last_digest_uri():
+    return os.getenv("LAST_DIGEST_URI", "").strip() or None
+
+def save_last_digest_uri(uri):
+    try:
+        _write_secret("LAST_DIGEST_URI", uri)
+        logger.info(f"Saved LAST_DIGEST_URI: {uri}")
+    except Exception as e:
+        logger.error(f"Failed to save LAST_DIGEST_URI: {e}")
