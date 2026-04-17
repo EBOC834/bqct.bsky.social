@@ -28,7 +28,7 @@ async def chainbase_search(query: str) -> List[Dict]:
     try:
         async with httpx.AsyncClient() as client:
             r = await client.get(
-                "https://api.chainbase.com/api/v1/trending/crypto",
+                "https://api.chainbase.com/tops/v1/tool/list-trending-topics?language=en",
                 timeout=SEARCH_TIMEOUT
             )
             r.raise_for_status()
