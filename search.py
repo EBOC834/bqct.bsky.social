@@ -36,7 +36,7 @@ async def chainbase_search(query: str) -> List[Dict]:
             items = data.get("items", [])
             if not items:
                 return []
-            return items[:3]
+            return items[:6]
     except Exception as e:
         logger.error(f"Chainbase search failed: {e}")
         return []
