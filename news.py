@@ -46,9 +46,8 @@ async def post_if_due(client, llm):
     if not lines:
         return False
 
-    header = "crypto trend №1 in X:\n\n"
     signature = "\n\nQwen | Chainbase TOPS 💜💛"
-    max_content_len = 300 - len(header) - len(signature)
+    max_content_len = 300 - len(signature)
 
     final_line = generator.generate_digest(llm, lines[0])
     if final_line.startswith("- "):
@@ -56,7 +55,7 @@ async def post_if_due(client, llm):
     if len(final_line) > max_content_len:
         final_line = final_line[:max_content_len].rsplit(' ', 1)[0]
 
-    post_text = header + final_line + signature
+    post_text = final_line + signature
 
     try:
         resp = await bsky.post_root(client, BOT_DID, post_text)
