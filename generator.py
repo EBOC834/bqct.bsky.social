@@ -88,18 +88,20 @@ def generate_engagement_plan(llm, digest_text, comments):
     prompt = (
         f"Digest Topic:\n{digest_text}\n\n"
         f"Comments:\n{comments_block}\n\n"
-        "Task: Identify relevant, substantive comments. Ignore spam, bots, emojis-only, or off-topic.\n"
-        "Return a JSON array of objects: [{\"index\": 0, \"text\": \"...\", \"reply\": \"...\"}]\n"
-        "Max 10 items. Reply must be <100 chars, English, helpful.\n"
+        "Task: Classify comments into two lists:\n"
+        "1. 'replies': Substantive/relevant. Generate a <100 char helpful reply.\n"
+        "2. 'likes': Positive/short/emoji-only comments. No reply needed.\n"
+        "Ignore spam/bots/negative/off-topic.\n"
+        "Return JSON: {\"replies\": [{\"index\": 0, \"reply\": \"...\"}], \"likes\": [{\"index\": 1}]}\n"
         "Output ONLY valid JSON."
     )
     out = llm(prompt, max_tokens=512, temperature=0.3)
     raw = out["choices"][0]["text"].strip()
     try:
-        start = raw.find('[')
-        end = raw.rfind(']') + 1
+        start = raw.find('{')
+        end = raw.rfind('}') + 1
         if start != -1 and end != -1:
             return json.loads(raw[start:end])
     except Exception:
         pass
-    return []
+    return {"replies": [], "likes": []}
