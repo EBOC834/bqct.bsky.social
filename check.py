@@ -120,9 +120,9 @@ async def main():
                     continue
                 if idx > latest_idx:
                     latest_idx = idx
-                if auth != OWNER_DID:
-                    continue
-                if reason not in ("mention", "reply"):
+                
+                if auth == OWNER_DID and reason == "reply":
+                    logger.info(f"Skipping owner reply (deferred to engagement): {txt[:30]}...")
                     continue
 
                 has_t = "!t" in txt.lower()
