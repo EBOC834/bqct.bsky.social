@@ -71,13 +71,20 @@ def update_summary(llm, old_summary, user_text, reply):
     return out["choices"][0]["text"].strip()[:300]
 
 def generate_digest(llm, raw_line):
+    score_match = re.search(r'\[score:(\d+)\]', raw_line)
+    score_tag = f"[score:{score_match.group(1)}]" if score_match else "[score:0]"
+    
+    clean_line = re.sub(r'^-\s*', '', raw_line).strip()
+    clean_line = re.sub(r'\s*\[score:\d+\]:?', '', clean_line).strip()
+    
     prompt = (
         "Rewrite this crypto trend into a single, complete sentence under 260 chars. "
-        "Format exactly: 'KEYWORD [RANK]: Summary.' End with ONE period. English only.\n"
-        f"Input: {raw_line}\nOutput: "
+        f"Format: 'KEYWORD {score_tag}: Summary.' End with ONE period. English only.\n"
+        f"Input: {clean_line}\nOutput: "
     )
     out = llm(prompt, max_tokens=80, stop=["\n", "Input:", "Output:"], echo=False, temperature=0.1)
     text = out["choices"][0]["text"].strip()
+    
     if text.startswith(("- ", "* ", "• ")):
         text = text[2:].strip()
     text = text.rstrip('.!? ') + '.'
