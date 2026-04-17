@@ -91,3 +91,14 @@ async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, pare
 
 async def post_root(client, bot_did, text):
     return await post_record(client, bot_did, text)
+
+async def like_post(client, bot_did, subject_uri, subject_cid):
+    created_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    record = {
+        "$type": "app.bsky.feed.like",
+        "subject": {"uri": subject_uri, "cid": subject_cid},
+        "createdAt": created_at
+    }
+    r = await client.post("/xrpc/com.atproto.repo.createRecord", json={"repo": bot_did, "collection": "app.bsky.feed.like", "record": record})
+    r.raise_for_status()
+    return r.json()
