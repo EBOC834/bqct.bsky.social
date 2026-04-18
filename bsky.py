@@ -2,6 +2,7 @@ import httpx
 import datetime
 import re
 import logging
+import parser
 from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -69,11 +70,26 @@ async def get_thread_raw(client, target_uri: str, token: str):
     )
     return r.json() if r.status_code == 200 else None
 
-async def fetch_root_cid(client, root_uri: str, token: str) -> str:
-    rec = await get_record(client, root_uri)
-    if rec:
-        return rec.get("cid", "")
-    return ""
+async def fetch_thread_context(client, target_uri: str):
+    token = client.headers.get("Authorization", "").replace("Bearer ", "")
+    raw = await get_thread_raw(client, target_uri, token)
+    if not raw:
+        return None
+    posts = await parser.parse_thread(raw, token, client)
+    root = next((p for p in posts if p.get("is_root")), None)
+    if not root and len(posts) == 1:
+        p = posts[0]
+        root = {"uri": p.get("uri", ""), "handle": p.get("handle", ""), "text": p.get("text", ""), "cid": p.get("cid", "")}
+    if not root:
+        return None
+    parent = next((p for p in posts if p.get("uri") == target_uri), root)
+    return {
+        "root_uri": root.get("uri", target_uri),
+        "root_author": root.get("handle", "unknown"),
+        "root_text": root.get("text", ""),
+        "parent_uri": target_uri,
+        "parent_cid": parent.get("cid", "")
+    }
 
 def build_hashtag_facets(text: str, tags: list) -> list:
     facets = []
@@ -101,6 +117,13 @@ async def post_record(client, bot_did, text, reply_obj=None, facets=None):
     r.raise_for_status()
     return r.json()
 
+async def fetch_root_cid(client, root_uri: str) -> str:
+    token = client.headers.get("Authorization", "").replace("Bearer ", "")
+    rec = await get_record(client, root_uri)
+    if rec:
+        return rec.get("cid", "")
+    return ""
+
 async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, parent_cid):
     if not root_uri or not parent_uri:
         raise ValueError("Missing required URI for reply")
@@ -108,8 +131,7 @@ async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, pare
     if parent_cid:
         effective_root_cid = root_cid
         if not effective_root_cid:
-            token = client.headers.get("Authorization", "").replace("Bearer ", "")
-            effective_root_cid = await fetch_root_cid(client, root_uri, token)
+            effective_root_cid = await fetch_root_cid(client, root_uri)
         reply_obj = {
             "root": {"uri": root_uri, "cid": effective_root_cid},
             "parent": {"uri": parent_uri, "cid": parent_cid}
