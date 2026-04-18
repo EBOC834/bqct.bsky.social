@@ -1,9 +1,16 @@
+import os
 import time
 import hashlib
 import base64
 import httpx
+import logging
 from nacl import encoding, public
-from config import PAT, GITHUB_REPOSITORY, CONTEXT_SLOT_COUNT
+
+logger = logging.getLogger(__name__)
+
+PAT = os.getenv("PAT")
+GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
+CONTEXT_SLOT_COUNT = int(os.getenv("CONTEXT_SLOT_COUNT", "30"))
 
 def encrypt_secret(pk, value):
     pk_obj = public.PublicKey(pk.encode("utf-8"), encoding.Base64Encoder())
@@ -17,10 +24,18 @@ def _read_secret(name):
         try:
             with httpx.Client() as c:
                 r = c.get(f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/{name}", headers=_headers())
-                if r.status_code == 200: return r.json().get("value", "")
-                if r.status_code >= 400 and i < 2: time.sleep(2 ** i)
-        except: pass
-        if i < 2: time.sleep(2 ** i)
+                if r.status_code == 200:
+                    val = r.json().get("value", "")
+                    logger.info(f"Secret read: {name} ({len(val) if val else 0} chars)")
+                    return val
+                if r.status_code == 404:
+                    logger.info(f"Secret not found (first use): {name}")
+                    return ""
+                if r.status_code >= 400 and i < 2:
+                    time.sleep(2 ** i)
+        except Exception as e:
+            logger.warning(f"Read secret {name} attempt {i+1} failed: {e}")
+            if i < 2: time.sleep(2 ** i)
     return ""
 
 def _write_secret(name, value):
@@ -28,13 +43,22 @@ def _write_secret(name, value):
         try:
             with httpx.Client() as c:
                 kr = c.get(f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/public-key", headers=_headers())
+                if kr.status_code != 200:
+                    if i < 2: time.sleep(2 ** i)
+                    continue
                 kd = kr.json()
                 enc = encrypt_secret(kd["key"], value)
                 r = c.put(f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/{name}", headers=_headers(), json={"encrypted_value": enc, "key_id": kd["key_id"]})
-                if r.status_code in (201, 204): return True
-                if r.status_code >= 400 and i < 2: time.sleep(2 ** i)
-        except: pass
-        if i < 2: time.sleep(2 ** i)
+                if r.status_code in (201, 204):
+                    logger.info(f"Secret written: {name}")
+                    return True
+                if r.status_code >= 400 and i < 2:
+                    logger.warning(f"Write secret {name} attempt {i+1} failed: {r.status_code}")
+                    time.sleep(2 ** i)
+        except Exception as e:
+            logger.warning(f"Write secret {name} attempt {i+1} failed: {e}")
+            if i < 2: time.sleep(2 ** i)
+    logger.error(f"Failed to write secret after 3 attempts: {name}")
     return False
 
 def _slot(tid):
