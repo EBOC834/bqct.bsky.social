@@ -9,6 +9,7 @@ import generator
 import bsky
 import news
 import parser
+import engagement
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
@@ -79,8 +80,7 @@ async def process_item(client, item, llm):
     
     relevant_posts = []
     for p in posts:
-        if p.get("is_root"):
-            continue
+        if p.get("is_root"): continue
         if p.get("author", {}).get("did") == OWNER_DID:
             text = p.get("text", "")
             if any(trigger in text.lower() for trigger in TRIGGER_KEYWORDS):
@@ -88,10 +88,7 @@ async def process_item(client, item, llm):
                 logger.debug(f"[DEBUG] Added relevant owner post | text={_sanitize(text)}")
     
     recent_posts = relevant_posts[:10]
-    bsky_context_str = "\n".join([
-        f"@{p.get('handle', 'unknown')}: {p.get('text', '')}"
-        for p in ([root_post] if root_post else []) + recent_posts
-    ])
+    bsky_context_str = "\n".join([f"@{p.get('handle', 'unknown')}: {p.get('text', '')}" for p in ([root_post] if root_post else []) + recent_posts])
     logger.info(f"[2] Bluesky Context Fetched:\n{bsky_context_str if bsky_context_str else '(Empty - API error)'}")
     logger.debug(f"[DEBUG] Context summary | root_posts=1 | recent_posts={len(recent_posts)} | total_chars={len(bsky_context_str)}")
     
@@ -231,6 +228,6 @@ async def main():
 if __name__ == "__main__":
     logger.info("=== BOT STARTED ===")
     logger.debug(f"[DEBUG] Environment | BOT_HANDLE={BOT_HANDLE} | BOT_DID={BOT_DID} | OWNER_DID={OWNER_DID}")
-    logger.debug(f"[DEBUG] Config | MODEL_PATH={config.MODEL_PATH} | MODEL_N_CTX={config.MODEL_N_CTX} | CONTEXT_SLOT_COUNT={config.CONTEXT_SECRET_COUNT}")
+    logger.debug(f"[DEBUG] Config | MODEL_PATH={config.MODEL_PATH} | MODEL_N_CTX={config.MODEL_N_CTX} | CONTEXT_SLOT_COUNT={config.CONTEXT_SLOT_COUNT}")
     asyncio.run(main())
     logger.info("=== BOT FINISHED ===")
