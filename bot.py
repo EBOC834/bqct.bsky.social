@@ -123,6 +123,17 @@ async def main():
                 logger.error(f"Model load failed, skipping heavy tasks: {e}")
                 return
         
+        if llm:
+            active_uri = state.load_active_digest_uri()
+            if active_uri:
+                try:
+                    active_rec = await bsky.get_record(client, active_uri)
+                    active_text = active_rec["value"].get("text", "") if active_rec else ""
+                    logger.info("Processing active digest engagement...")
+                    await engagement.process_digest_engagement(client, llm, active_uri, active_text)
+                except Exception as e:
+                    logger.error(f"Failed to process active digest engagement: {e}")
+        
         if digest_due and llm:
             logger.info("Posting daily digest...")
             await news.post_if_due(client, llm)
