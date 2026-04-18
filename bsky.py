@@ -21,10 +21,8 @@ async def login(client, handle, password):
 async def resolve_handle_to_did(client, handle: str) -> Optional[str]:
     try:
         r = await client.get("/xrpc/com.atproto.identity.resolveHandle", params={"handle": handle})
-        if r.status_code == 200:
-            return r.json().get("did")
-    except Exception:
-        pass
+        if r.status_code == 200: return r.json().get("did")
+    except Exception: pass
     return None
 
 def parse_uri(uri: str) -> Optional[Dict[str, str]]:
@@ -34,29 +32,23 @@ def parse_uri(uri: str) -> Optional[Dict[str, str]]:
             return {"did": parts[2], "collection": parts[3], "rkey": parts[4], "uri": uri}
     elif uri.startswith("https://bsky.app/profile/"):
         match = re.match(r"https://bsky\.app/profile/([^/]+)/post/([^/?#]+)", uri)
-        if match:
-            return {"handle": match.group(1), "rkey": match.group(2), "collection": "app.bsky.feed.post", "uri": uri}
+        if match: return {"handle": match.group(1), "rkey": match.group(2), "collection": "app.bsky.feed.post", "uri": uri}
     return None
 
 async def normalize_uri(client, uri: str) -> Optional[str]:
     parsed = parse_uri(uri)
-    if not parsed:
-        return None
-    if "did" in parsed:
-        return f"at://{parsed['did']}/{parsed['collection']}/{parsed['rkey']}"
+    if not parsed: return None
+    if "did" in parsed: return f"at://{parsed['did']}/{parsed['collection']}/{parsed['rkey']}"
     if "handle" in parsed:
         did = await resolve_handle_to_did(client, parsed["handle"])
-        if did:
-            return f"at://{did}/{parsed['collection']}/{parsed['rkey']}"
+        if did: return f"at://{did}/{parsed['collection']}/{parsed['rkey']}"
     return None
 
 async def get_record(client, uri: str):
     normalized = await normalize_uri(client, uri)
-    if not normalized:
-        return None
+    if not normalized: return None
     parts = normalized.split("/")
-    if len(parts) < 5:
-        return None
+    if len(parts) < 5: return None
     did, collection, rkey = parts[2], parts[3], parts[4]
     r = await client.get("/xrpc/com.atproto.repo.getRecord", params={"repo": did, "collection": collection, "rkey": rkey})
     return r.json() if r.status_code == 200 else None
@@ -86,18 +78,15 @@ def build_hashtag_facets(text: str, tags: list) -> list:
 async def post_record(client, bot_did, text, reply_obj=None, facets=None):
     created_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     record = {"$type": "app.bsky.feed.post", "text": text, "createdAt": created_at}
-    if reply_obj:
-        record["reply"] = reply_obj
-    if facets:
-        record["facets"] = facets
+    if reply_obj: record["reply"] = reply_obj
+    if facets: record["facets"] = facets
     payload = {"repo": bot_did, "collection": "app.bsky.feed.post", "record": record}
     r = await client.post("/xrpc/com.atproto.repo.createRecord", json=payload)
     r.raise_for_status()
     return r.json()
 
 async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, parent_cid):
-    if not root_uri or not parent_uri:
-        raise ValueError("Missing required URI for reply")
+    if not root_uri or not parent_uri: raise ValueError("Missing required URI for reply")
     reply_obj = None
     if parent_cid:
         effective_root_uri = root_uri if root_cid else parent_uri
