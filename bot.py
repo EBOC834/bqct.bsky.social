@@ -25,7 +25,7 @@ async def process_item(client, item, llm):
     prompt = state.build_prompt(thread, memory, search_res, user_text)
     reply = generator.get_answer(llm, memory, prompt, search_res, user_text, item.get("has_search", False), search_type)
     reply = generator.add_signature(reply, search_type if item.get("has_search", False) else None)
-    await bsky.post_reply(client, os.getenv("BOT_DID"), reply, thread["root_uri"], "", thread["parent_uri"], thread["parent_cid"])
+    await bsky.post_reply(client, os.getenv("BOT_DID"), reply, thread["root_uri"], thread.get("root_cid", ""), thread["parent_uri"], thread.get("parent_cid", ""))
     new_memory = generator.update_summary(llm, memory, user_text, reply)
     state.save_context(thread["root_uri"], new_memory)
 
