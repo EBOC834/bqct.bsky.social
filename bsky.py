@@ -96,21 +96,19 @@ async def post_record(client, bot_did, text, reply_obj=None, facets=None):
     r.raise_for_status()
     return r.json()
 
+async def _fetch_cid(client, uri: str) -> str:
+    rec = await get_record(client, uri)
+    if rec:
+        return rec.get("cid", "")
+    return ""
+
 async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, parent_cid):
     if not root_uri or not parent_uri:
         raise ValueError("Missing required URI for reply")
-    effective_root_cid = root_cid
-    effective_parent_cid = parent_cid
-    if not effective_root_cid:
-        root_rec = await get_record(client, root_uri)
-        if root_rec:
-            effective_root_cid = root_rec.get("cid", "")
-    if not effective_parent_cid:
-        parent_rec = await get_record(client, parent_uri)
-        if parent_rec:
-            effective_parent_cid = parent_rec.get("cid", "")
+    effective_root_cid = root_cid if root_cid else await _fetch_cid(client, root_uri)
+    effective_parent_cid = parent_cid if parent_cid else await _fetch_cid(client, parent_uri)
     if not effective_root_cid or not effective_parent_cid:
-        logger.error(f"Cannot post reply: missing CID (root={effective_root_cid}, parent={effective_parent_cid})")
+        logger.error(f"Cannot post: missing CID root={effective_root_cid} parent={effective_parent_cid}")
         return None
     reply_obj = {
         "root": {"uri": root_uri, "cid": effective_root_cid},
