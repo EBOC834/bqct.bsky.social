@@ -17,6 +17,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 TRIGGER_KEYWORDS = ["!t", "!c", "!s", "!r"]
+MAX_SEARCH_RESULTS_LEN = 2000
 
 async def process_item(client, item, llm):
     uri, user_text = item["uri"], item["text"]
@@ -98,7 +99,8 @@ async def process_item(client, item, llm):
             logger.info(f"[SEARCH] Calling {search_type} | query='{search_params['query']}' | kwargs={kwargs}")
             search_results = await func(search_params["query"], **kwargs)
             if search.is_search_result_valid(search_results, search_type):
-                logger.info(f"[SEARCH] Success | results_len={len(search_results)}")
+                search_results = search_results[:MAX_SEARCH_RESULTS_LEN]
+                logger.info(f"[SEARCH] Success | results_len={len(search_results)} (truncated to {MAX_SEARCH_RESULTS_LEN})")
                 logger.debug(f"[SEARCH] Results preview: {search_results[:300]}...")
             else:
                 logger.warning("[SEARCH] Invalid results, cleared")
@@ -108,6 +110,9 @@ async def process_item(client, item, llm):
     
     logger.info(f"[CONTEXT] Building final context | root_post={bool(root_post)} | relevant_posts={len(relevant_posts)} | memory={bool(memory)} | search_results={bool(search_results)}")
     full_context = state.merge_contexts(root_post, relevant_posts[:10], memory, search_results, user_text)
+    if len(full_context) > 7000:
+        full_context = full_context[:7000] + "\n...(truncated)"
+        logger.warning(f"[CONTEXT] Context truncated to 7000 chars | original_len={len(full_context)}")
     logger.info(f"[CONTEXT] Final context:\n{full_context}")
     
     logger.info(f"[LLM] Generating answer | do_search={do_search} | search_type={search_type}")
