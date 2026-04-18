@@ -1,10 +1,14 @@
 import os
 import json
 import time
+import hashlib
 import base64
 import httpx
 from nacl import encoding, public
-from config import PAT, GITHUB_REPOSITORY, CONTEXT_SLOT_COUNT
+
+PAT = os.getenv("PAT")
+GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
+CONTEXT_SLOT_COUNT = int(os.getenv("CONTEXT_SLOT_COUNT", "10"))
 
 def _encrypt(pk, value):
     pk_obj = public.PublicKey(pk.encode("utf-8"), encoding.Base64Encoder())
@@ -41,35 +45,14 @@ def _write(name, value):
             if i < 2: time.sleep(2 ** i)
     return False
 
-def _get_all_contexts():
-    pool = {}
-    for i in range(CONTEXT_SLOT_COUNT):
-        raw = _read(f"CONTEXT_{i}")
-        if raw:
-            try: pool.update(json.loads(raw))
-            except: pass
-    return pool
+def _slot(tid):
+    return int(hashlib.sha256(tid.encode()).hexdigest(), 16) % CONTEXT_SLOT_COUNT
 
 def load_context(tid):
-    all_ctx = _get_all_contexts()
-    return all_ctx.get(tid, "")
+    return _read(f"CONTEXT_{_slot(tid)}") or ""
 
 def save_context(tid, summary):
-    all_ctx = _get_all_contexts()
-    all_ctx[tid] = summary
-    slot_size = 64000
-    current_slot = 0
-    while True:
-        try:
-            payload = {k: v for k, v in all_ctx.items() if current_slot * 100 <= hash(k) % CONTEXT_SLOT_COUNT < (current_slot + 1) * 100}
-            if len(json.dumps(payload)) < slot_size:
-                _write(f"CONTEXT_{current_slot}", json.dumps(payload))
-                return True
-            current_slot += 1
-            if current_slot >= CONTEXT_SLOT_COUNT:
-                break
-        except: break
-    return False
+    _write(f"CONTEXT_{_slot(tid)}", summary)
 
 def load_last_digest_uri(): return _read("LAST_DIGEST_URI")
 def save_last_digest_uri(uri): _write("LAST_DIGEST_URI", uri)
