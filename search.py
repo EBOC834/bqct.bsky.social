@@ -1,8 +1,7 @@
-import os
 import httpx
 import logging
 import re
-from typing import List, Dict
+import generator
 from config import TAVILY_API_KEY, SEARCH_TIMEOUT
 
 logger = logging.getLogger(__name__)
@@ -27,13 +26,10 @@ async def tavily_search(query: str, time_range: str = None, topic: str = None) -
         logger.error(f"Tavily search failed: {e}")
         return f"Error: {str(e)}"
 
-async def chainbase_search(query: str) -> List[Dict]:
+async def chainbase_search(query: str) -> list:
     try:
         async with httpx.AsyncClient() as client:
-            r = await client.get(
-                "https://api.chainbase.com/tops/v1/tool/list-trending-topics?language=en",
-                timeout=SEARCH_TIMEOUT
-            )
+            r = await client.get("https://api.chainbase.com/tops/v1/tool/list-trending-topics?language=en", timeout=SEARCH_TIMEOUT)
             r.raise_for_status()
             data = r.json()
             items = data.get("items", [])
@@ -48,6 +44,19 @@ def is_search_result_valid(result, search_type: str) -> bool:
     if search_type == "tavily": return "Error" not in str(result) and len(str(result)) > 10
     if search_type == "chainbase": return isinstance(result, list) and len(result) > 0
     return True
+
+async def execute_if_needed(llm, item, root_text):
+    if not item.get("has_search"): return ""
+    search_type = item.get("search_type", "tavily")
+    search_params = generator.extract_search_params(llm, item["text"], root_text)
+    provider = SEARCH_PROVIDERS.get(search_type)
+    if not provider: return ""
+    func = provider["func"]
+    supported = provider.get("supports", [])
+    kwargs = {k: v for k, v in search_params.items() if k in supported}
+    kwargs.pop('query', None)
+    res = await func(search_params["query"], **kwargs)
+    return res if is_search_result_valid(res, search_type) else ""
 
 SEARCH_PROVIDERS = {
     "tavily": {"func": tavily_search, "supports": ["time_range", "topic"]},
