@@ -65,15 +65,28 @@ def get_answer(llm, memory, context, search_results, user_text, do_search, searc
     return clean_artifacts(_extract_text(response))
 
 def extract_search_params(llm, user_text, root_text):
-    prompt = f"""Extract search query and filters from: "{user_text}"
+    prompt = f"""You are an intelligent search query generator. Analyze the user message and conversation context to extract the core information need into a precise, keyword-optimized search query.
+
+Rules:
+- Remove conversational filler, mentions, greetings, and command triggers.
+- Identify central topics, technical terms, and specific entities.
+- Preserve original intent and language.
+- Output ONLY a valid JSON object with keys: "query", "time_range", "topic".
+- "time_range": "d", "w", "m", or null.
+- "topic": "tech", "crypto", "news", or null.
+
+User message: "{user_text}"
 Context: "{root_text}"
-Output JSON: {{"query": "...", "time_range": "...", "topic": "..."}}"""
-    response = llm(prompt, max_tokens=100, temperature=0.2)
+
+Output JSON:"""
+    response = llm(prompt, max_tokens=150, temperature=0.2)
     try:
         text = _extract_text(response)
-        return json.loads(text)
+        params = json.loads(text)
+        params["query"] = clean_artifacts(params.get("query", ""))
+        return params
     except:
-        return {"query": user_text, "time_range": "d", "topic": "news"}
+        return {"query": clean_artifacts(user_text), "time_range": "w", "topic": "tech"}
 
 def update_summary(llm, memory, user_text, reply):
     prompt = f"Summarize this exchange in 1 sentence:\nQ: {user_text}\nA: {reply}"
