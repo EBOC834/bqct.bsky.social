@@ -118,7 +118,6 @@ async def main():
                 has_trigger = has_t or has_c
                 has_mention = f"@{BOT_HANDLE}" in txt
                 
-                # Skip owner replies ONLY if they have no trigger and no mention
                 if auth == OWNER_DID and reason == "reply" and not has_trigger and not has_mention:
                     logger.info(f"Skipping owner reply (deferred to engagement): {txt[:30]}...")
                     continue
@@ -131,7 +130,8 @@ async def main():
                         "has_search": has_trigger,
                         "search_type": search_type
                     })
-                    logger.info(f"Relevant: {txt[:30]}... | trigger={!t/!c/mention}" if has_trigger else f"Relevant: {txt[:30]}...")
+                    trigger_label = "trigger=!t/!c" if has_trigger else "trigger=mention" if has_mention else "trigger=reply"
+                    logger.info(f"Relevant: {txt[:30]}... | {trigger_label}")
             if relevant:
                 github_output = os.getenv("GITHUB_OUTPUT", "")
                 if github_output:
