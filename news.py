@@ -1,6 +1,5 @@
 import os
 import logging
-import re
 from datetime import datetime, timezone
 import state
 import search
@@ -26,7 +25,7 @@ def smart_truncate(text: str, max_len: int) -> str:
         if idx > max_len * 0.7: return truncated[:idx + 1] + "..."
     return truncated.rsplit(' ', 1)[0] + "..."
 
-def check_timer(secret_name: str, hours: int) -> tuple[bool, str]:
+def check_timer(secret_name: str, hours: int) -> tuple:
     now_utc = datetime.now(timezone.utc)
     raw = os.getenv(secret_name, "").strip()
     if not raw or raw in ("{}", "null"): return True, now_utc.isoformat()
@@ -37,7 +36,7 @@ def check_timer(secret_name: str, hours: int) -> tuple[bool, str]:
         return False, raw
     except: return True, now_utc.isoformat()
 
-def check_mini_timer() -> tuple[bool, str]:
+def check_mini_timer() -> tuple:
     return check_timer("LAST_NEWS", 1)
 
 async def post_if_due(client, llm) -> bool:
