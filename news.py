@@ -20,6 +20,16 @@ def get_trend_emoji(rank_status: str) -> str:
         return "↘️"
     return "➡️"
 
+def smart_truncate(text: str, max_len: int) -> str:
+    if len(text) <= max_len:
+        return text
+    truncated = text[:max_len - 3]
+    for sep in ['.', '!', '?', ';']:
+        idx = truncated.rfind(sep)
+        if idx > max_len * 0.7:
+            return truncated[:idx + 1] + "..."
+    return truncated.rsplit(' ', 1)[0] + "..."
+
 def check_timer(secret_name, hours):
     now_utc = datetime.now(timezone.utc)
     raw = os.getenv(secret_name, "").strip()
@@ -62,7 +72,6 @@ async def post_if_due(client, llm):
 
     if do_mini:
         header = "TOP CRYPTO TRENDS:\n\n"
-        base_len = len(header) + len(signature)
         lines = []
 
         for item in trends:
@@ -106,15 +115,14 @@ async def post_if_due(client, llm):
         trend_emoji = get_trend_emoji(rank_status)
 
         raw_line = f"- {keyword} [score:{int(score)}]: {item.get('summary', '')}"
-        final_line = generator.generate_digest(llm, raw_line)
+        max_body_chars = 300 - len(header) - len(signature) - 4
+        final_line = generator.generate_digest(llm, raw_line, max_chars=max_body_chars)
         if final_line.startswith("- "):
             final_line = final_line[2:]
 
         final_line = f"{trend_emoji} {final_line}"
-
         max_content_len = 300 - len(header) - len(signature)
-        if len(final_line) > max_content_len:
-            final_line = final_line[:max_content_len].rsplit(' ', 1)[0]
+        final_line = smart_truncate(final_line, max_content_len)
 
         post_text = header + final_line + signature
 
