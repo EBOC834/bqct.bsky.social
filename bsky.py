@@ -6,7 +6,6 @@ from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 BASE_URL = "https://bsky.social"
-BOT_DID = ""
 
 def get_client():
     return httpx.AsyncClient(base_url=BASE_URL, timeout=30)
@@ -70,6 +69,36 @@ async def get_thread_raw(client, root_uri: str, token: str):
     )
     return r.json() if r.status_code == 200 else None
 
+async def fetch_thread_chain(client, target_uri: str, token: str):
+    r = await client.get(
+        f"https://bsky.social/xrpc/app.bsky.feed.getPostThread?uri={target_uri}&depth=0&parentHeight=100",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30
+    )
+    if r.status_code != 200:
+        return None
+    chain = []
+    current = r.json().get("thread", {})
+    while current:
+        post = current.get("post")
+        if post:
+            chain.append(post)
+        current = current.get("parent")
+    chain = list(reversed(chain))
+    if not chain:
+        return None
+    root = chain[0]
+    target = chain[-1]
+    return {
+        "root_uri": root.get("uri"),
+        "root_cid": root.get("cid"),
+        "root_text": root.get("record", {}).get("text", ""),
+        "root_handle": root.get("author", {}).get("handle", ""),
+        "parent_uri": target_uri,
+        "parent_cid": target.get("cid"),
+        "chain": chain
+    }
+
 def build_hashtag_facets(text: str, tags: list) -> list:
     facets = []
     for tag in tags:
@@ -96,28 +125,14 @@ async def post_record(client, bot_did, text, reply_obj=None, facets=None):
     r.raise_for_status()
     return r.json()
 
-async def _fetch_cid(client, uri: str) -> str:
-    rec = await get_record(client, uri)
-    if rec:
-        return rec.get("cid", "")
-    return ""
-
 async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, parent_cid):
     if not root_uri or not parent_uri:
         raise ValueError("Missing required URI for reply")
-    effective_root_cid = root_cid
-    effective_parent_cid = parent_cid
-    if not effective_root_cid:
-        effective_root_cid = await _fetch_cid(client, root_uri)
-    if not effective_parent_cid:
-        effective_parent_cid = await _fetch_cid(client, parent_uri)
-    if not effective_root_cid or not effective_parent_cid:
-        logger.error(f"Cannot post reply: missing CID root={effective_root_cid} parent={effective_parent_cid}")
-        return None
-    reply_obj = {
-        "root": {"uri": root_uri, "cid": effective_root_cid},
-        "parent": {"uri": parent_uri, "cid": effective_parent_cid}
-    }
+    reply_obj = None
+    if parent_cid:
+        effective_root_uri = root_uri if root_cid else parent_uri
+        effective_root_cid = root_cid if root_cid else parent_cid
+        reply_obj = {"root": {"uri": effective_root_uri, "cid": effective_root_cid}, "parent": {"uri": parent_uri, "cid": parent_cid}}
     return await post_record(client, bot_did, text, reply_obj)
 
 async def post_root(client, bot_did, text, facets=None):
