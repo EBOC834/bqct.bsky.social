@@ -26,6 +26,7 @@ def _extract_text(response) -> str:
     return ""
 
 def clean_artifacts(text: str) -> str:
+    text = re.sub(r'\s*\[\d+\s*characters?\]', '', text)
     text = re.sub(r'\s*[!|/][tc]\b', '', text)
     text = re.sub(r'\s{2,}', ' ', text)
     return text.strip()
@@ -40,14 +41,12 @@ def add_signature(reply: str, search_type: str = None) -> str:
     return f"{reply}\n\nQwen"
 
 def generate_digest(llm, raw_line: str, max_chars: int = 248) -> str:
-    prompt = f"""Rewrite the following crypto trend into a concise, engaging sentence.
+    prompt = f"""Refine the following crypto trend line for readability.
 
 STRICT CONSTRAINTS:
+- MUST preserve the exact prefix format: "Keyword [score:XXX]: "
 - Total length MUST be under {max_chars} characters.
-- Keep the score format exactly as [score:XXX].
-- Preserve the core fact and impact.
-- Use active, professional tone.
-- Output ONLY the rewritten sentence.
+- Output ONLY the refined sentence. NO meta-text, character counts, or explanations.
 
 Input: {raw_line}
 
