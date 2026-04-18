@@ -34,6 +34,9 @@ def check_timer(secret_name, hours):
     except Exception:
         return True, now_utc.isoformat()
 
+def check_mini_timer():
+    return check_timer("LAST_NEWS", 1)
+
 async def post_if_due(client, llm):
     do_full, full_ts = check_timer("LAST_FULL_DIGEST", 1)
     do_mini, mini_ts = check_timer("LAST_MINI_DIGEST", 3)
