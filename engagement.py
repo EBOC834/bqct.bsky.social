@@ -1,87 +1,73 @@
-import os
-import asyncio
 import logging
+from typing import List, Dict
 import bsky
 import generator
 
 logger = logging.getLogger(__name__)
-BOT_DID = os.getenv("BOT_DID")
-MAX_COMMENTS = 50
 
-async def process_digest_engagement(client, llm, digest_uri, digest_text):
+async def process_digest_engagement(client, llm, digest_uri: str, digest_text: str):
+    logger.info(f"[ENGAGEMENT] Processing digest: {digest_uri}")
+    
     try:
-        token = client.headers.get("Authorization", "").replace("Bearer ", "")
-        r = await client.get(
-            f"https://bsky.social/xrpc/app.bsky.feed.getPostThread?uri={digest_uri}&depth=1",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=30
-        )
-        if r.status_code != 200:
-            logger.warning(f"Failed to fetch digest thread: {r.status_code}")
-            return
-
-        data = r.json()
-        replies = data.get("thread", {}).get("replies", [])
-        if not replies:
-            logger.info("No comments on digest.")
-            return
-
-        comments = []
-        for rep in replies[:MAX_COMMENTS]:
-            post = rep.get("post", {})
-            record = post.get("record", {})
-            if record and record.get("text"):
-                comments.append({
-                    "uri": post.get("uri"),
-                    "cid": post.get("cid"),
-                    "handle": post.get("author", {}).get("handle", "unknown"),
-                    "text": record.get("text", "")[:300]
-                })
-
+        thread = await bsky.get_thread_raw(client, digest_uri, client.headers.get("Authorization", "").replace("Bearer ", ""))
+        posts = await bsky.parse_thread(thread, client.headers.get("Authorization", "").replace("Bearer ", ""), client)
+        
+        comments = [p for p in posts if not p.get("is_root") and p.get("uri") != digest_uri]
+        logger.info(f"[ENGAGEMENT] Found {len(comments)} comments")
+        
         if not comments:
-            logger.info("No valid comments found.")
+            logger.info("[ENGAGEMENT] No comments to process")
             return
-
-        plan = generator.generate_engagement_plan(llm, digest_text, comments)
-        if not plan:
-            logger.info("LLM returned empty plan.")
-            return
-
-        reply_items = plan.get("replies", [])
-        like_items = plan.get("likes", [])
-        processed = set()
-
-        actions = []
-        for item in like_items:
-            idx = item.get("index")
-            if idx is not None and 0 <= idx < len(comments) and idx not in processed:
-                actions.append(("like", idx, None))
-                processed.add(idx)
-
-        for item in reply_items:
-            idx = item.get("index")
-            reply_text = item.get("reply", "")
-            if idx is not None and 0 <= idx < len(comments) and idx not in processed and reply_text:
-                actions.append(("reply", idx, reply_text))
-                processed.add(idx)
-
-        if not actions:
-            logger.info("No actions selected by LLM.")
-            return
-
-        logger.info(f"Executing {len(actions)} engagement actions...")
-        root_cid = data["thread"]["post"]["cid"]
-        for action_type, idx, reply_text in actions:
-            target = comments[idx]
+        
+        for i, comment in enumerate(comments, 1):
+            author_handle = comment.get("handle", "unknown")
+            comment_text = comment.get("text", "")
+            comment_uri = comment.get("uri", "")
+            
+            logger.info(f"[ENGAGEMENT] Comment {i}: @{author_handle} - \"{comment_text[:100]}...\"")
+        
+        engagement_plan = await generator.generate_engagement_plan(llm, digest_text, comments)
+        logger.info(f"[ENGAGEMENT] Plan generated: {engagement_plan}")
+        
+        likes_to_give = engagement_plan.get("likes", [])
+        replies_to_make = engagement_plan.get("replies", [])
+        
+        logger.info(f"[ENGAGEMENT] Likes to give: {len(likes_to_give)}")
+        for like_uri in likes_to_give:
+            logger.info(f"  - {like_uri}")
+        
+        logger.info(f"[ENGAGEMENT] Replies to make: {len(replies_to_make)}")
+        for reply in replies_to_make:
+            logger.info(f"  - To: {reply.get('uri')} | Text: {reply.get('text', '')[:80]}...")
+        
+        for comment_uri in likes_to_give:
             try:
-                await bsky.like_post(client, BOT_DID, target["uri"], target["cid"])
-                logger.info(f"Liked comment {idx}")
-                if action_type == "reply":
-                    await bsky.post_reply(client, BOT_DID, reply_text, digest_uri, root_cid, target["uri"], target["cid"])
-                    logger.info(f"Replied to comment {idx}")
-                await asyncio.sleep(1.5)
+                await bsky.like_post(client, comment_uri)
+                logger.info(f"[ENGAGEMENT] ✅ Liked: {comment_uri}")
             except Exception as e:
-                logger.error(f"Action failed for comment {idx}: {e}")
-                continue
+                logger.error(f"[ENGAGEMENT] ❌ Failed to like {comment_uri}: {e}")
+        
+        for reply_data in replies_to_make:
+            try:
+                comment_uri = reply_data.get("uri")
+                reply_text = reply_data.get("text", "")
+                
+                comment_record = await bsky.get_record(client, comment_uri)
+                if not comment_record:
+                    logger.warning(f"[ENGAGEMENT] Comment not found: {comment_uri}")
+                    continue
+                
+                root_uri = comment_record["value"].get("reply", {}).get("root", {}).get("uri", digest_uri)
+                parent_uri = comment_uri
+                
+                await bsky.post_reply(client, bsky.BOT_DID, reply_text, root_uri, "", comment_uri, parent_uri)
+                logger.info(f"[ENGAGEMENT] ✅ Replied to {comment_uri}: \"{reply_text[:80]}...\"")
+            except Exception as e:
+                logger.error(f"[ENGAGEMENT] ❌ Failed to reply to {comment_uri}: {e}")
+        
+        logger.info("[ENGAGEMENT] Processing complete")
+        
     except Exception as e:
-        logger.error(f"Engagement process error: {e}")
+        logger.error(f"[ENGAGEMENT] Failed to process engagement: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
