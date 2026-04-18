@@ -87,6 +87,7 @@ async def post_if_due(client, llm):
             new_uri = resp.get("uri")
             if new_uri:
                 state.save_last_digest_uri(new_uri)
+                state.save_active_digest_uri(new_uri)
             state.save_daily_post_ts(now_utc)
             state._write_secret("LAST_MINI_DIGEST", now_utc)
             state._write_secret("LAST_FULL_DIGEST", now_utc)
@@ -122,6 +123,7 @@ async def post_if_due(client, llm):
             new_uri = resp.get("uri")
             if new_uri:
                 state.save_last_digest_uri(new_uri)
+                state.save_active_digest_uri(new_uri)
             state.save_daily_post_ts(now_utc)
             state._write_secret("LAST_FULL_DIGEST", now_utc)
             logger.info("Posted full digest")
