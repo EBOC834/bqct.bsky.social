@@ -52,7 +52,7 @@ jobs:
               try:
                   last_ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
                   diff = datetime.now(timezone.utc) - last_ts
-                  if diff.total_seconds() >= 3 * 3600:
+                  if diff.total_seconds() >= 1 * 3600:
                       needs_news = True
               except:
                   needs_news = True
@@ -86,6 +86,8 @@ jobs:
         if: steps.check-run.outputs.status == 'true'
         env:
           LAST_NEWS: ${{ secrets.LAST_NEWS }}
+          LAST_FULL_DIGEST: ${{ secrets.LAST_FULL_DIGEST }}
+          LAST_MINI_DIGEST: ${{ secrets.LAST_MINI_DIGEST }}
           BOT_HANDLE: ${{ secrets.BOT_HANDLE }}
           BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
           BOT_DID: ${{ secrets.BOT_DID }}
