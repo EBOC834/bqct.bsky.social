@@ -79,7 +79,6 @@ async def main():
             logger.info(f"FIRST RUN: Setting timestamp to NOW: {now}")
             await update_last_processed_secret(now)
             sys.exit(0)
-        
         logger.info(f"Checking notifications since {LAST_PROCESSED}")
         async with httpx.AsyncClient() as client:
             r = await client.post(
@@ -91,7 +90,6 @@ async def main():
                 raise Exception(f"Login failed: {r.status_code}")
             token = r.json()["accessJwt"]
             headers = {"Authorization": f"Bearer {token}"}
-            
             r = await fetch_with_retry(
                 client,
                 "https://bsky.social/xrpc/app.bsky.notification.listNotifications",
@@ -101,36 +99,26 @@ async def main():
             )
             if r.status_code != 200:
                 raise Exception(f"Fetch failed: {r.status_code}")
-            
             notifications = r.json().get("notifications", [])
-            logger.info(f"Total notifications fetched: {len(notifications)}")
-            
             relevant = []
             latest_idx = LAST_PROCESSED
-            new_count = 0
-            
             for n in notifications:
                 idx = n.get("indexedAt", "")
                 auth = n.get("author", {}).get("did", "")
                 reason = n.get("reason", "")
                 txt = (n.get("record", {}).get("text") or "").strip()
                 uri = n.get("uri", "")
-                
                 if idx <= LAST_PROCESSED:
                     continue
-                new_count += 1
                 if idx > latest_idx:
                     latest_idx = idx
-                
                 if auth == OWNER_DID and reason == "reply":
                     logger.info(f"Skipping owner reply (deferred to engagement): {txt[:30]}...")
                     continue
-                
                 has_t = "!t" in txt.lower()
                 has_c = "!c" in txt.lower()
                 has_trigger = has_t or has_c
                 has_mention = f"@{BOT_HANDLE}" in txt
-                
                 if has_trigger or has_mention or reason == "reply":
                     search_type = "tavily" if has_t else ("chainbase" if has_c else None)
                     relevant.append({
@@ -139,10 +127,7 @@ async def main():
                         "has_search": has_trigger,
                         "search_type": search_type
                     })
-                    logger.info(f"Relevant #{len(relevant)}: {txt[:50]}... | reason={reason} | trigger=mention/!t/!c")
-            
-            logger.info(f"New notifications: {new_count} | Relevant: {len(relevant)}")
-            
+                    logger.info(f"Relevant: {txt[:30]}...")
             if relevant:
                 github_output = os.getenv("GITHUB_OUTPUT", "")
                 if github_output:
@@ -151,16 +136,13 @@ async def main():
                 await update_last_processed_secret(latest_idx)
                 with open("work_data.json", "w") as f:
                     json.dump({"items": relevant}, f)
-                logger.info(f"Saved {len(relevant)} items to work_data.json")
+                logger.info(f"Saved {len(relevant)} items")
             else:
-                if notifications and new_count > 0:
+                if notifications:
                     await update_last_processed_secret(latest_idx)
-                logger.info("No new relevant notifications to process.")
-                
+                logger.info("No new relevant notifications.")
     except Exception as e:
         logger.error(f"Check failed: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
         sys.exit(0)
 
 if __name__ == "__main__":
