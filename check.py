@@ -19,7 +19,6 @@ GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
 LAST_PROCESSED = os.getenv("LAST_PROCESSED", "").strip()
 
 if not all([BOT_HANDLE, BOT_PASSWORD, OWNER_DID, PAT, GITHUB_REPOSITORY]):
-    logger.warning("Missing required env vars, exiting")
     sys.exit(0)
 
 def is_empty(value):
@@ -97,7 +96,7 @@ async def main():
                 client,
                 "https://bsky.social/xrpc/app.bsky.notification.listNotifications",
                 headers=headers,
-                params={"limit": 50},
+                params={"limit": 20},
                 timeout=15
             )
             if r.status_code != 200:
