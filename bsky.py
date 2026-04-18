@@ -99,26 +99,23 @@ async def post_record(client, bot_did, text, reply_obj=None, facets=None):
 async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, parent_cid):
     if not root_uri or not parent_uri:
         raise ValueError("Missing required URI for reply")
-    reply_obj = None
-    if parent_cid:
-        effective_root_cid = root_cid
-        effective_parent_cid = parent_cid
-        if not effective_root_cid:
-            root_rec = await get_record(client, root_uri)
-            if root_rec:
-                effective_root_cid = root_rec.get("cid", "")
-        if not effective_parent_cid:
-            parent_rec = await get_record(client, parent_uri)
-            if parent_rec:
-                effective_parent_cid = parent_rec.get("cid", "")
-        if effective_root_cid and effective_parent_cid:
-            reply_obj = {
-                "root": {"uri": root_uri, "cid": effective_root_cid},
-                "parent": {"uri": parent_uri, "cid": effective_parent_cid}
-            }
-    if not reply_obj:
-        logger.error(f"Cannot post reply: missing CID (root={root_cid}, parent={parent_cid})")
+    effective_root_cid = root_cid
+    effective_parent_cid = parent_cid
+    if not effective_root_cid:
+        root_rec = await get_record(client, root_uri)
+        if root_rec:
+            effective_root_cid = root_rec.get("cid", "")
+    if not effective_parent_cid:
+        parent_rec = await get_record(client, parent_uri)
+        if parent_rec:
+            effective_parent_cid = parent_rec.get("cid", "")
+    if not effective_root_cid or not effective_parent_cid:
+        logger.error(f"Cannot post reply: missing CID (root={effective_root_cid}, parent={effective_parent_cid})")
         return None
+    reply_obj = {
+        "root": {"uri": root_uri, "cid": effective_root_cid},
+        "parent": {"uri": parent_uri, "cid": effective_parent_cid}
+    }
     return await post_record(client, bot_did, text, reply_obj)
 
 async def post_root(client, bot_did, text, facets=None):
