@@ -1,5 +1,6 @@
 import os
 import logging
+import re
 from datetime import datetime, timezone
 import state
 import search
@@ -110,17 +111,20 @@ async def post_if_due(client, llm):
         header = "TOP CRYPTO TREND:\n\n"
         item = trends[0]
         keyword = item.get("keyword", "")
-        score = item.get("score", 0)
+        score = int(item.get("score", 0))
         rank_status = item.get("rank_status", "same")
         trend_emoji = get_trend_emoji(rank_status)
+        summary = item.get("summary", "")
 
-        raw_line = f"- {keyword} [score:{int(score)}]: {item.get('summary', '')}"
-        max_body_chars = 300 - len(header) - len(signature) - 4
-        final_line = generator.generate_digest(llm, raw_line, max_chars=max_body_chars)
-        if final_line.startswith("- "):
-            final_line = final_line[2:]
+        score_suffix = f"\n📊 {score}"
+        max_text_chars = 248 - len(score_suffix)
 
-        final_line = f"{trend_emoji} {final_line}"
+        raw_input = f"{keyword}: {summary}"
+        final_text = generator.generate_digest(llm, raw_input, max_chars=max_text_chars)
+        final_text = re.sub(r'\s*📊\s*:?\s*\d+\s*$', '', final_text)
+        final_text = re.sub(r'\s*\[score:\s*\d+\]\s*:', ':', final_text)
+
+        final_line = f"{trend_emoji} {final_text}{score_suffix}"
         max_content_len = 300 - len(header) - len(signature)
         final_line = smart_truncate(final_line, max_content_len)
 
