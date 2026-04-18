@@ -15,7 +15,7 @@ MAX_TOKENS = int(os.getenv("MAX_TOKENS", "512"))
 SYSTEM_PROMPT = "You are a concise, expert crypto/tech analyst. Answer strictly based on provided context. Prioritize [ROOT] post. If asked for 'other' or 'different' news, avoid repeating thread context. Synthesize ONLY new info from search. If unknown, state so. Output only final answer."
 SUMMARIZE_SYSTEM = "Maintain concise thread summary. Preserve [ROOT] anchor. Update with essential reply info. Remove redundancy. Keep under 300 chars excluding [ROOT]. Output only summary text."
 QUERY_REFINE_SYSTEM = "Extract concise search query from user question. Return only query string. Remove fillers, mentions, triggers. Identify core entities/topics. Output ONLY valid JSON: {\"query\": \"...\", \"time_range\": \"d|w|m|null\", \"topic\": \"tech|crypto|news|null\"}"
-DIGEST_REFINE_SYSTEM = "Refine this crypto trend into a compelling headline. Replace generic 'Keyword:' with the actual topic name. Keep under {max_chars} chars. Output ONLY the refined sentence, no prefix, no score, no emoji."
+DIGEST_REFINE_SYSTEM = "Refine this crypto trend into a compelling headline. Replace generic 'Keyword:' with the actual topic name from the input. Keep under {max_chars} chars total. Output ONLY the refined sentence with the real topic name as prefix, no 'Keyword:', no score, no emoji, no meta-text."
 ENGAGEMENT_SYSTEM = "Analyze comments on digest. Return JSON: {\"likes\": [\"uri1\"], \"replies\": [{\"uri\": \"...\", \"text\": \"...\"}]}. Like positive/short comments. Reply only to substantive questions. Replies <150 chars."
 
 def get_model():
