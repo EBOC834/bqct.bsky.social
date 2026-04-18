@@ -1,4 +1,3 @@
-import os
 import time
 import hashlib
 import base64
@@ -62,15 +61,13 @@ def save_active_digest_uri(uri):
 def save_daily_post_ts(ts):
     _write_secret("LAST_NEWS", ts)
 
-def merge_contexts(root_post, recent_posts, memory, search_results, user_question):
+def build_prompt(thread_data, memory, search_res, user_text):
     parts = []
-    if root_post:
-        parts.append(f"@{root_post.get('handle', 'unknown')}: {root_post.get('text', '')}")
-    for p in recent_posts:
-        parts.append(f"@{p.get('handle', 'unknown')}: {p.get('text', '')}")
+    if thread_data.get("root_text"):
+        parts.append(f"[ROOT] @{thread_data['root_author']}: {thread_data['root_text']}")
     if memory:
-        parts.append(f"\n[Memory Summary]:\n{memory}")
-    if search_results:
-        parts.append(f"\n[Search Results]:\n{search_results}")
-    parts.append(f"\n[User Question]:\n{user_question}")
+        parts.append(f"[Memory]: {memory}")
+    if search_res:
+        parts.append(f"[Search]: {search_res}")
+    parts.append(f"[User]: {user_text}")
     return "\n".join(parts)
