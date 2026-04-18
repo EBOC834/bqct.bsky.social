@@ -68,7 +68,7 @@ async def post_if_due(client, llm):
     signature = "\nQwen | Chainbase TOPS 💜💛"
     now_utc = datetime.now(timezone.utc).isoformat()
     if do_mini:
-        header = "TOP CRYPTO TRENDS:\n\n"
+        header = "TOP CRYPTO TRENDS:\n"
         lines = []
         for item in trends:
             keyword = item.get("keyword", "Unknown")
@@ -83,7 +83,7 @@ async def post_if_due(client, llm):
                 break
         if not lines:
             return False
-        post_text = header + "\n".join(lines) + "\n" + signature
+        post_text = header + "\n".join(lines) + signature
         try:
             resp = await bsky.post_root(client, BOT_DID, post_text)
             new_uri = resp.get("uri")
@@ -99,7 +99,7 @@ async def post_if_due(client, llm):
             logger.error(f"Mini post failed: {e}")
             return False
     elif do_full:
-        header = "TOP CRYPTO TREND:\n\n"
+        header = "TOP CRYPTO TREND:\n"
         item = trends[0]
         keyword = item.get("keyword", "")
         score = int(item.get("score", 0))
@@ -110,10 +110,12 @@ async def post_if_due(client, llm):
         max_text_chars = 248 - len(score_suffix)
         raw_input = f"{keyword}: {summary}"
         final_text = generator.generate_digest(llm, raw_input, max_chars=max_text_chars)
+        final_text = re.sub(r'\s*🆕\s*:?\s*\d+\s*$', '', final_text)
+        final_text = re.sub(r'\s*\[score:\s*\d+\]\s*:', ':', final_text)
         final_line = f"{trend_emoji} {final_text}{score_suffix}"
         max_content_len = 300 - len(header) - len(signature)
         final_line = smart_truncate(final_line, max_content_len)
-        post_text = header + final_line + "\n" + signature
+        post_text = header + final_line + signature
         try:
             resp = await bsky.post_root(client, BOT_DID, post_text)
             new_uri = resp.get("uri")
