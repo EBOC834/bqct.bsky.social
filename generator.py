@@ -26,7 +26,9 @@ def _extract_text(response) -> str:
     return ""
 
 def clean_artifacts(text: str) -> str:
+    text = re.sub(r'\s*\[score:\s*\d+\]\s*:', ':', text)
     text = re.sub(r'\s*\[\d+\s*characters?\]', '', text)
+    text = re.sub(r'\s*📊\s*:?\s*\d+\s*$', '', text)
     text = re.sub(r'\s*[!|/][tc]\b', '', text)
     text = re.sub(r'\s{2,}', ' ', text)
     return text.strip()
@@ -44,9 +46,10 @@ def generate_digest(llm, raw_line: str, max_chars: int = 248) -> str:
     prompt = f"""Refine the following crypto trend line for readability.
 
 STRICT CONSTRAINTS:
-- MUST preserve the exact prefix format: "Keyword [score:XXX]: "
+- MUST preserve the exact prefix format: "Keyword: "
 - Total length MUST be under {max_chars} characters.
 - Output ONLY the refined sentence. NO meta-text, character counts, or explanations.
+- Do NOT add any score, emoji, or suffix.
 
 Input: {raw_line}
 
