@@ -1,17 +1,24 @@
 import os
 import httpx
 import logging
+import re
 from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 SEARCH_TIMEOUT = int(os.getenv("SEARCH_TIMEOUT", "30"))
 
+def clean_query(query: str) -> str:
+    query = re.sub(r'\s*[!|/][tc]\s*', ' ', query)
+    query = re.sub(r'\s+', ' ', query)
+    return query.strip()
+
 async def tavily_search(query: str, time_range: str = None, topic: str = None) -> str:
     if not TAVILY_API_KEY:
         return "Error: TAVILY_API_KEY not set"
     try:
-        payload = {"query": query, "api_key": TAVILY_API_KEY, "max_results": 5, "include_answer": True}
+        clean_q = clean_query(query)
+        payload = {"query": clean_q, "api_key": TAVILY_API_KEY, "max_results": 5, "include_answer": True}
         if time_range:
             payload["time_range"] = time_range
         if topic:
