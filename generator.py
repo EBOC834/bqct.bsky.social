@@ -1,114 +1,67 @@
-import re
-import json
+import os
 import logging
 from llama_cpp import Llama
-import config
-import prompts
 
 logger = logging.getLogger(__name__)
+MODEL_PATH = os.getenv("MODEL_PATH", "models/qwen2.5-coder-14b-instruct-q5_k_m.gguf")
+SYSTEM_PROMPT = "You are a concise, expert crypto/tech analyst. Answer strictly based on provided context."
 
 def get_model():
-    try:
-        return Llama(
-            model_path=config.MODEL_PATH,
-            n_ctx=config.MODEL_N_CTX,
-            n_threads=config.MODEL_N_THREADS,
-            n_batch=256,
-            n_ubatch=128,
-            verbose=False
-        )
-    except Exception as e:
-        logger.error(f"Model load failed: {e}")
-        raise
-
-def extract_search_params(llm, user_text, root_post_text=""):
-    clean_user_text = re.sub(r'\s*![tc]\b', '', user_text, flags=re.IGNORECASE).strip()
-    if root_post_text:
-        clean_root = re.sub(r'\s*![tc]\b', '', root_post_text, flags=re.IGNORECASE).strip()
-        context_for_query = f"Topic: {clean_root}\nQuestion: {clean_user_text}"
-    else:
-        context_for_query = clean_user_text
-    
-    fp = f"  system\n{prompts.QUERY_REFINE_SYSTEM}\nuser\n{context_for_query}\nassistant\n"
-    out = llm(fp, max_tokens=64, stop=["  user", "  system", "  assistant"], echo=False, temperature=0.3)
-    query = out["choices"][0]["text"].strip()
-    query = re.sub(r'\s*![tc]\b', '', query, flags=re.IGNORECASE).strip()
-    
-    params = {"query": query if query else clean_user_text[:100]}
-    if "today" in clean_user_text.lower() or "now" in clean_user_text.lower():
-        params["time_range"] = "day"
-    if "news" in clean_user_text.lower():
-        params["topic"] = "news"
-    return params
-
-def get_answer(llm, memory_context, fresh_context, search_results, user_text, do_search, search_type):
-    full_context = ""
-    if memory_context:
-        full_context += f"Thread Summary:\n{memory_context}\n"
-    if fresh_context:
-        full_context += f"Thread Context:\n{fresh_context}\n"
-    if search_results:
-        full_context += f"Search Results:\n{search_results}\n"
-    
-    fp = f"  system\n{prompts.ANSWER_SYSTEM}\nuser\n{full_context}User Question:\n{user_text}\nassistant\n"
-    out = llm(fp, max_tokens=config.MAX_TOKENS, stop=["  user", "  system", "  assistant"], echo=False, temperature=config.TEMPERATURE)
-    reply = out["choices"][0]["text"].strip()
-    
-    if do_search and search_type == "tavily":
-        suffix = "Qwen | Tavily"
-    elif do_search and search_type == "chainbase":
-        suffix = "Qwen | Chainbase"
-    else:
-        suffix = "Qwen"
-    
-    max_reply_chars = config.RESPONSE_MAX_CHARS - len(suffix) - 2
-    reply = reply[:max_reply_chars]
-    return f"{reply}\n\n{suffix}"
-
-def update_summary(llm, old_summary, user_text, reply):
-    fp = f"  system\n{prompts.SUMMARIZE_SYSTEM}\nuser\nPrevious: {old_summary}\nUser: {user_text}\nReply: {reply}\nNew summary:\nassistant\n"
-    out = llm(fp, max_tokens=128, stop=["  user", "  system", "  assistant"], echo=False, temperature=0.5)
-    return out["choices"][0]["text"].strip()[:300]
-
-def generate_digest(llm, raw_line):
-    score_match = re.search(r'\[score:(\d+)\]', raw_line)
-    score_tag = f"[score:{score_match.group(1)}]" if score_match else "[score:0]"
-    
-    clean_line = re.sub(r'^-\s*', '', raw_line).strip()
-    clean_line = re.sub(r'\s*\[score:\d+\]:?', '', clean_line).strip()
-    
-    prompt = (
-        "Rewrite this crypto trend into a single, complete sentence under 260 chars. "
-        f"Format: 'KEYWORD {score_tag}: Summary.' End with ONE period. English only.\n"
-        f"Input: {clean_line}\nOutput: "
+    return Llama(
+        model_path=MODEL_PATH,
+        n_ctx=8192,
+        n_threads=4,
+        verbose=False
     )
-    out = llm(prompt, max_tokens=80, stop=["\n", "Input:", "Output:"], echo=False, temperature=0.1)
-    text = out["choices"][0]["text"].strip()
-    
-    if text.startswith(("- ", "* ", "• ")):
-        text = text[2:].strip()
-    text = text.rstrip('.!? ') + '.'
-    return text[:260]
 
-def generate_engagement_plan(llm, digest_text, comments):
-    comments_block = "\n".join([f"[{i}] @{c['handle']}: {c['text']}" for i, c in enumerate(comments)])
-    prompt = (
-        f"Digest Topic:\n{digest_text}\n\n"
-        f"Comments:\n{comments_block}\n\n"
-        "Task: Classify comments into two lists:\n"
-        "1. 'replies': Substantive/relevant. Generate a <100 char helpful reply.\n"
-        "2. 'likes': Positive/short/emoji-only comments. No reply needed.\n"
-        "Ignore spam/bots/negative/off-topic.\n"
-        "Return JSON: {\"replies\": [{\"index\": 0, \"reply\": \"...\"}], \"likes\": [{\"index\": 1}]}\n"
-        "Output ONLY valid JSON."
-    )
-    out = llm(prompt, max_tokens=512, temperature=0.3)
-    raw = out["choices"][0]["text"].strip()
+def generate_digest(llm, raw_line: str, max_chars: int = 248) -> str:
+    prompt = f"""Rewrite the following crypto trend into a concise, engaging sentence.
+
+STRICT CONSTRAINTS:
+- Total length MUST be under {max_chars} characters.
+- Keep the score format exactly as [score:XXX].
+- Preserve the core fact and impact.
+- Use active, professional tone.
+- Output ONLY the rewritten sentence.
+
+Input: {raw_line}
+
+Output:"""
+    response = llm(prompt, max_tokens=120, temperature=0.3)
+    return response.strip()
+
+def get_answer(llm, memory, context, search_results, user_text, do_search, search_type):
+    prompt = f"{SYSTEM_PROMPT}\n\nContext:\n{context}\n\nUser: {user_text}\nAssistant:"
+    response = llm(prompt, max_tokens=500, temperature=0.7)
+    return response.strip()
+
+def extract_search_params(llm, user_text, root_text):
+    prompt = f"""Extract search query and filters from: "{user_text}"
+Context: "{root_text}"
+Output JSON: {{"query": "...", "time_range": "...", "topic": "..."}}"""
+    response = llm(prompt, max_tokens=100, temperature=0.2)
     try:
-        start = raw.find('{')
-        end = raw.rfind('}') + 1
-        if start != -1 and end != -1:
-            return json.loads(raw[start:end])
-    except Exception:
-        pass
-    return {"replies": [], "likes": []}
+        import json
+        return json.loads(response.strip())
+    except:
+        return {"query": user_text, "time_range": "d", "topic": "news"}
+
+def update_summary(llm, memory, user_text, reply):
+    prompt = f"Summarize this exchange in 1 sentence:\nQ: {user_text}\nA: {reply}"
+    response = llm(prompt, max_tokens=50, temperature=0.3)
+    return response.strip()
+
+async def generate_engagement_plan(llm, digest_text, comments):
+    comments_text = "\n".join([f"@{c['handle']}: {c['text']}" for c in comments])
+    prompt = f"""Analyze comments on this post: "{digest_text}"
+Comments:
+{comments_text}
+
+Return JSON: {{"likes": ["uri1", "uri2"], "replies": [{{"uri": "...", "text": "..."}}]}}
+Only like positive/short comments. Reply only to substantive questions. Keep replies <150 chars."""
+    response = llm(prompt, max_tokens=200, temperature=0.3)
+    try:
+        import json
+        return json.loads(response.strip())
+    except:
+        return {"likes": [], "replies": []}
