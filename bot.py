@@ -89,6 +89,7 @@ async def process_item(client, item, llm):
     logger.info(f"[5] Final Context Assembled:\n{full_context}")
     
     reply = generator.get_answer(llm, memory, full_context, search_results, user_text, do_search, search_type)
+    reply = generator.add_signature(reply, search_type if do_search else None)
     logger.info(f"[7] Final Reply to Bluesky:\n{reply}")
     
     try:
@@ -125,7 +126,7 @@ async def main():
         
         if llm:
             active_uri = state.load_active_digest_uri()
-            if active_uri:
+            if active_uri and active_uri not in ("{}", "null", ""):
                 try:
                     active_rec = await bsky.get_record(client, active_uri)
                     active_text = active_rec["value"].get("text", "") if active_rec else ""
