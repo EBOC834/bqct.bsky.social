@@ -75,6 +75,7 @@ jobs:
       - name: Run Bot
         if: steps.check-run.outputs.status == 'true'
         env:
+          PYTHONUNBUFFERED: "1"
           MODEL_PATH: "models/qwen2.5-coder-14b-instruct-q5_k_m.gguf"
           MODEL_N_CTX: "8192"
           MODEL_N_THREADS: "2"
