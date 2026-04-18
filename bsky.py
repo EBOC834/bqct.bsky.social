@@ -2,12 +2,14 @@ import httpx
 import datetime
 import re
 import logging
-from typing import List, Dict, Optional
+import parser
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 BASE_URL = "https://bsky.social"
 
-def get_client(): return httpx.AsyncClient(base_url=BASE_URL, timeout=30)
+def get_client():
+    return httpx.AsyncClient(base_url=BASE_URL, timeout=30)
 
 async def login(client, handle, password):
     r = await client.post("/xrpc/com.atproto.server.createSession", json={"identifier": handle, "password": password})
@@ -49,9 +51,32 @@ async def get_record(client, uri: str):
     r = await client.get("/xrpc/com.atproto.repo.getRecord", params={"repo": parts[2], "collection": parts[3], "rkey": parts[4]})
     return r.json() if r.status_code == 200 else None
 
-async def get_thread_raw(client, root_uri: str, token: str):
-    r = await client.get(f"https://bsky.social/xrpc/app.bsky.feed.getPostThread?uri={root_uri}&depth=100", headers={"Authorization": f"Bearer {token}"}, timeout=60)
+async def get_thread_raw(client, target_uri: str, token: str):
+    r = await client.get(
+        f"https://bsky.social/xrpc/app.bsky.feed.getPostThread?uri={target_uri}&depth=0&parentHeight=100",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30
+    )
     return r.json() if r.status_code == 200 else None
+
+async def fetch_thread_context(client, target_uri: str):
+    token = client.headers.get("Authorization", "").replace("Bearer ", "")
+    raw = await get_thread_raw(client, target_uri, token)
+    if not raw: return None
+    posts = await parser.parse_thread(raw, token, client)
+    root = next((p for p in posts if p.get("is_root")), None)
+    if not root and len(posts) == 1:
+        p = posts[0]
+        root = {"uri": p.get("uri", ""), "handle": p.get("handle", ""), "text": p.get("text", ""), "cid": p.get("cid", "")}
+    if not root: return None
+    parent = next((p for p in posts if p.get("uri") == target_uri), root)
+    return {
+        "root_uri": root.get("uri", target_uri),
+        "root_author": root.get("handle", "unknown"),
+        "root_text": root.get("text", ""),
+        "parent_uri": target_uri,
+        "parent_cid": parent.get("cid", "")
+    }
 
 def build_hashtag_facets(text: str, tags: list) -> list:
     facets = []
