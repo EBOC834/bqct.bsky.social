@@ -20,26 +20,39 @@ def get_trend_emoji(rank_status: str) -> str:
         return "↘️"
     return "➡️"
 
-def should_post():
+def check_mini_timer():
     now_utc = datetime.now(timezone.utc)
     raw = os.getenv("LAST_NEWS", "").strip()
     if not raw or raw == "{}" or raw == "null":
-        return True, now_utc.isoformat(), "full"
+        return True, now_utc.isoformat()
     try:
         last_ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         diff = now_utc - last_ts
-        seconds = diff.total_seconds()
-        if seconds >= 6 * 3600:
-            return True, now_utc.isoformat(), "full"
-        elif seconds >= 3 * 3600:
-            return True, now_utc.isoformat(), "mini"
-        return False, raw, None
+        if diff.total_seconds() >= 3 * 3600:
+            return True, now_utc.isoformat()
+        return False, raw
     except Exception:
-        return True, now_utc.isoformat(), "full"
+        return True, now_utc.isoformat()
+
+def check_full_timer():
+    now_utc = datetime.now(timezone.utc)
+    raw = os.getenv("LAST_FULL_DIGEST", "").strip()
+    if not raw or raw == "{}" or raw == "null":
+        return True, now_utc.isoformat()
+    try:
+        last_ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        diff = now_utc - last_ts
+        if diff.total_seconds() >= 6 * 3600:
+            return True, now_utc.isoformat()
+        return False, raw
+    except Exception:
+        return True, now_utc.isoformat()
 
 async def post_if_due(client, llm):
-    should_post_flag, new_ts, digest_type = should_post()
-    if not should_post_flag:
+    do_mini, mini_ts = check_mini_timer()
+    do_full, full_ts = check_full_timer()
+
+    if not do_mini:
         return False
 
     last_digest_uri = state.load_last_digest_uri()
@@ -57,8 +70,8 @@ async def post_if_due(client, llm):
 
     signature = "\n\nQwen | Chainbase TOPS 💜💛"
 
-    if digest_type == "full":
-        header = "TOP TREND:\n\n"
+    if do_full:
+        header = "TOP CRYPTO TREND:\n\n"
         item = trends[0]
         keyword = item.get("keyword", "")
         score = item.get("score", 0)
@@ -78,8 +91,20 @@ async def post_if_due(client, llm):
 
         post_text = header + final_line + signature
 
+        try:
+            resp = await bsky.post_root(client, BOT_DID, post_text)
+            new_uri = resp.get("uri")
+            if new_uri:
+                state.save_last_digest_uri(new_uri)
+            state.save_daily_post_ts(mini_ts)
+            state._write_secret("LAST_FULL_DIGEST", full_ts)
+            logger.info("Posted full digest")
+            return True
+        except Exception as e:
+            logger.error(f"Full post failed: {e}")
+            return False
     else:
-        header = "TOP TRENDS:\n\n"
+        header = "TOP CRYPTO TRENDS:\n\n"
         base_len = len(header) + len(signature)
         lines = []
 
@@ -100,14 +125,14 @@ async def post_if_due(client, llm):
             return False
         post_text = header + "\n".join(lines) + signature
 
-    try:
-        resp = await bsky.post_root(client, BOT_DID, post_text)
-        new_uri = resp.get("uri")
-        if new_uri:
-            state.save_last_digest_uri(new_uri)
-        state.save_daily_post_ts(new_ts)
-        logger.info(f"Posted {digest_type} digest")
-        return True
-    except Exception as e:
-        logger.error(f"[NEWS] Post failed: {e}")
-        return False
+        try:
+            resp = await bsky.post_root(client, BOT_DID, post_text)
+            new_uri = resp.get("uri")
+            if new_uri:
+                state.save_last_digest_uri(new_uri)
+            state.save_daily_post_ts(mini_ts)
+            logger.info("Posted mini digest")
+            return True
+        except Exception as e:
+            logger.error(f"Mini post failed: {e}")
+            return False
