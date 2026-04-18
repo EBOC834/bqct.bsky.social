@@ -3,14 +3,8 @@ import time
 import hashlib
 import base64
 import httpx
-import logging
 from nacl import encoding, public
-
-logger = logging.getLogger(__name__)
-
-PAT = os.getenv("PAT")
-GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
-CONTEXT_SLOT_COUNT = int(os.getenv("CONTEXT_SLOT_COUNT", "30"))
+from config import PAT, GITHUB_REPOSITORY, CONTEXT_SLOT_COUNT
 
 def encrypt_secret(pk, value):
     pk_obj = public.PublicKey(pk.encode("utf-8"), encoding.Base64Encoder())
@@ -25,17 +19,12 @@ def _read_secret(name):
             with httpx.Client() as c:
                 r = c.get(f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/{name}", headers=_headers())
                 if r.status_code == 200:
-                    val = r.json().get("value", "")
-                    logger.info(f"Secret read: {name} ({len(val) if val else 0} chars)")
-                    return val
-                if r.status_code == 404:
-                    logger.info(f"Secret not found (first use): {name}")
-                    return ""
+                    return r.json().get("value", "")
                 if r.status_code >= 400 and i < 2:
                     time.sleep(2 ** i)
-        except Exception as e:
-            logger.warning(f"Read secret {name} attempt {i+1} failed: {e}")
-            if i < 2: time.sleep(2 ** i)
+        except:
+            if i < 2:
+                time.sleep(2 ** i)
     return ""
 
 def _write_secret(name, value):
@@ -43,22 +32,16 @@ def _write_secret(name, value):
         try:
             with httpx.Client() as c:
                 kr = c.get(f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/public-key", headers=_headers())
-                if kr.status_code != 200:
-                    if i < 2: time.sleep(2 ** i)
-                    continue
                 kd = kr.json()
                 enc = encrypt_secret(kd["key"], value)
                 r = c.put(f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/{name}", headers=_headers(), json={"encrypted_value": enc, "key_id": kd["key_id"]})
                 if r.status_code in (201, 204):
-                    logger.info(f"Secret written: {name}")
                     return True
                 if r.status_code >= 400 and i < 2:
-                    logger.warning(f"Write secret {name} attempt {i+1} failed: {r.status_code}")
                     time.sleep(2 ** i)
-        except Exception as e:
-            logger.warning(f"Write secret {name} attempt {i+1} failed: {e}")
-            if i < 2: time.sleep(2 ** i)
-    logger.error(f"Failed to write secret after 3 attempts: {name}")
+        except:
+            if i < 2:
+                time.sleep(2 ** i)
     return False
 
 def _slot(tid):
@@ -85,13 +68,15 @@ def save_active_digest_uri(uri):
 def save_daily_post_ts(ts):
     _write_secret("LAST_NEWS", ts)
 
-def build_prompt(thread_data, memory, search_res, user_text):
+def merge_contexts(root_post, recent_posts, memory, search_results, user_question):
     parts = []
-    if thread_data.get("root_text"):
-        parts.append(f"[ROOT] @{thread_data['root_author']}: {thread_data['root_text']}")
+    if root_post:
+        parts.append(f"@{root_post.get('handle', 'unknown')}: {root_post.get('text', '')}")
+    for p in recent_posts:
+        parts.append(f"@{p.get('handle', 'unknown')}: {p.get('text', '')}")
     if memory:
-        parts.append(f"[Memory]: {memory}")
-    if search_res:
-        parts.append(f"[Search]: {search_res}")
-    parts.append(f"[User]: {user_text}")
+        parts.append(f"\n[Memory Summary]:\n{memory}")
+    if search_results:
+        parts.append(f"\n[Search Results]:\n{search_results}")
+    parts.append(f"\n[User Question]:\n{user_question}")
     return "\n".join(parts)
