@@ -20,11 +20,8 @@ TRIGGER_KEYWORDS = ["!t", "!c", "!s", "!r"]
 async def process_item(client, item, llm):
     uri, user_text = item["uri"], item["text"]
     do_search, search_type = item.get("has_search", False), item.get("search_type", "tavily")
-    logger.info(f"[1] Processing request for URI: {uri}, Text: {user_text[:50]}...")
     rec = await bsky.get_record(client, uri)
-    if not rec:
-        logger.warning("Record not found, skipping.")
-        return
+    if not rec: return
     reply_info = rec["value"].get("reply", {})
     root_uri = reply_info.get("root", {}).get("uri", uri)
     root_cid = reply_info.get("root", {}).get("cid", "")
@@ -38,27 +35,13 @@ async def process_item(client, item, llm):
         root_rec = await bsky.get_record(client, root_uri)
         if root_rec:
             root_author = root_rec.get("author", {})
-            root_post = {
-                "handle": root_author.get("handle", ""),
-                "text": root_rec["value"].get("text", ""),
-                "is_root": True,
-                "uri": root_rec.get("uri", ""),
-                "embed": "",
-                "link_hints": [],
-                "alts": []
-            }
+            root_post = {"handle": root_author.get("handle", ""), "text": root_rec["value"].get("text", ""), "is_root": True, "uri": root_rec.get("uri", ""), "embed": "", "link_hints": [], "alts": []}
     relevant_posts = []
     for p in posts:
         if p.get("is_root"): continue
         if p.get("author", {}).get("did") == OWNER_DID:
-            text = p.get("text", "")
-            if any(trigger in text.lower() for trigger in TRIGGER_KEYWORDS):
-                relevant_posts.append(p)
+            if any(trigger in p.get("text", "").lower() for trigger in TRIGGER_KEYWORDS): relevant_posts.append(p)
     recent_posts = relevant_posts[:10]
-    bsky_context_str = "\n".join([
-        f"@{p.get('handle', 'unknown')}: {p.get('text', '')}"
-        for p in ([root_post] if root_post else []) + recent_posts
-    ])
     memory = state.load_context(thread_id)
     search_results = ""
     if do_search:
@@ -70,32 +53,23 @@ async def process_item(client, item, llm):
             supported = provider.get("supports", [])
             kwargs = {k: v for k, v in search_params.items() if k in supported}
             kwargs.pop('query', None)
-            logger.info(f"[3] Search Query Generated: {search_params['query']} | Provider: {search_type}")
             search_results = await func(search_params["query"], **kwargs)
-            if not search.is_search_result_valid(search_results, search_type):
-                search_results = ""
-                logger.warning("Search result invalid, cleared.")
-            else:
-                logger.info(f"[4] Search Response Received ({len(search_results)} chars)")
+            if not search.is_search_result_valid(search_results, search_type): search_results = ""
     full_context = state.merge_contexts(root_post, recent_posts, memory, search_results, user_text)
     reply = generator.get_answer(llm, memory, full_context, search_results, user_text, do_search, search_type)
     reply = generator.add_signature(reply, search_type if do_search else None)
-    logger.info(f"[7] Final Reply to Bluesky:\n{reply}")
     try:
         await bsky.post_reply(client, BOT_DID, reply, root_uri, root_cid, uri, parent_cid)
-        logger.info("Reply posted successfully.")
     except Exception as e:
         logger.error(f"Failed to post reply: {e}")
         return
     new_summary = generator.update_summary(llm, memory, user_text, reply)
-    logger.info(f"[6] Saving Context to Secret:\n{new_summary}")
     state.save_context(thread_id, new_summary)
 
 async def main():
     async with bsky.get_client() as client:
         try:
             await bsky.login(client, BOT_HANDLE, BOT_PASSWORD)
-            logger.info("Authenticated with Bluesky API")
         except Exception as e:
             logger.error(f"Auth failed: {e}")
             return
@@ -103,11 +77,9 @@ async def main():
         has_notifications = os.path.exists("work_data.json")
         llm = None
         if digest_due or has_notifications:
-            try:
-                llm = generator.get_model()
-                logger.info("Model loaded successfully.")
+            try: llm = generator.get_model()
             except Exception as e:
-                logger.error(f"Model load failed, skipping heavy tasks: {e}")
+                logger.error(f"Model load failed: {e}")
                 return
         if llm:
             active_uri = state.load_active_digest_uri()
@@ -115,21 +87,15 @@ async def main():
                 try:
                     active_rec = await bsky.get_record(client, active_uri)
                     active_text = active_rec["value"].get("text", "") if active_rec else ""
-                    logger.info("Processing active digest engagement...")
                     await engagement.process_digest_engagement(client, llm, active_uri, active_text)
-                except Exception as e:
-                    logger.error(f"Failed to process active digest engagement: {e}")
-            if digest_due and llm:
-                logger.info("Posting daily digest...")
+                except Exception as e: logger.error(f"Digest engagement failed: {e}")
+            if digest_due:
                 await news.post_if_due(client, llm)
-            if has_notifications and llm:
-                logger.info("Processing notifications...")
-                with open("work_data.json", "r") as f:
-                    work_data = json.load(f)
-                if work_data.get("items"):
-                    for item in work_data["items"]:
-                        await process_item(client, item, llm)
-                        await asyncio.sleep(1)
+            if has_notifications:
+                with open("work_data.json", "r") as f: work_data = json.load(f)
+                for item in work_data.get("items", []):
+                    await process_item(client, item, llm)
+                    await asyncio.sleep(1)
 
 if __name__ == "__main__":
     asyncio.run(main())
