@@ -46,10 +46,10 @@ def add_signature(reply: str, search_type: str = None) -> str:
     if not reply:
         return reply
     if search_type == "tavily":
-        return f"{reply}\nQwen | Tavily"
+        return f"{reply}\n\nQwen | Tavily"
     elif search_type == "chainbase":
-        return f"{reply}\nQwen | Chainbase"
-    return f"{reply}\nQwen"
+        return f"{reply}\n\nQwen | Chainbase"
+    return f"{reply}\n\nQwen"
 
 def generate_digest(llm, raw_line: str, max_chars: int = 248) -> str:
     prompt = f"{DIGEST_REFINE_SYSTEM.format(max_chars=max_chars)}\nInput: {raw_line}\nOutput:"
