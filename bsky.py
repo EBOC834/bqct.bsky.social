@@ -6,6 +6,7 @@ from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 BASE_URL = "https://bsky.social"
+BOT_DID = ""
 
 def get_client():
     return httpx.AsyncClient(base_url=BASE_URL, timeout=30)
@@ -101,11 +102,11 @@ async def post_reply(client, bot_did, text, root_uri, root_cid, parent_uri, pare
     reply_obj = None
     if parent_cid:
         effective_root_cid = root_cid
+        effective_parent_cid = parent_cid
         if not effective_root_cid:
             root_rec = await get_record(client, root_uri)
             if root_rec:
                 effective_root_cid = root_rec.get("cid", "")
-        effective_parent_cid = parent_cid
         if not effective_parent_cid:
             parent_rec = await get_record(client, parent_uri)
             if parent_rec:
