@@ -65,10 +65,10 @@ async def post_if_due(client, llm):
     trends = await search.chainbase_search("")
     if not trends:
         return False
-    signature = "\nQwen | Chainbase TOPS 💜💛"
+    signature = "\n\nQwen | Chainbase TOPS 💜💛"
     now_utc = datetime.now(timezone.utc).isoformat()
     if do_mini:
-        header = "TOP CRYPTO TRENDS:\n"
+        header = "TOP CRYPTO TRENDS:\n\n"
         lines = []
         for item in trends:
             keyword = item.get("keyword", "Unknown")
@@ -99,7 +99,7 @@ async def post_if_due(client, llm):
             logger.error(f"Mini post failed: {e}")
             return False
     elif do_full:
-        header = "TOP CRYPTO TREND:\n"
+        header = "TOP CRYPTO TREND:\n\n"
         item = trends[0]
         keyword = item.get("keyword", "")
         score = int(item.get("score", 0))
