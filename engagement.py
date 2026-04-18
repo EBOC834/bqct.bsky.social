@@ -1,6 +1,5 @@
 import logging
 import bsky
-import parser
 import generator
 from config import BOT_DID
 
@@ -10,22 +9,16 @@ async def process_digest_engagement(client, llm, digest_uri: str, digest_text: s
     logger.info(f"[ENGAGEMENT] Processing digest: {digest_uri}")
     try:
         token = client.headers.get("Authorization", "").replace("Bearer ", "")
-        thread = await bsky.get_thread_raw(client, digest_uri, token)
+        thread = await bsky.fetch_thread(client, digest_uri)
         if not thread: return
-        posts = await parser.parse_thread(thread, token, client)
-        comments = [p for p in posts if not p.get("is_root") and p.get("uri") != digest_uri]
+        comments = [{"uri": digest_uri, "text": thread["root_text"], "cid": thread["root_cid"]}]
         if not comments: return
         plan = await generator.generate_engagement_plan(llm, digest_text, comments)
         for uri in plan.get("likes", []):
-            try:
-                c = next((x for x in comments if x["uri"] == uri), None)
-                if c: await bsky.like_post(client, BOT_DID, uri, c["cid"])
-            except Exception as e: logger.error(f"[ENGAGEMENT] Failed to like {uri}: {e}")
+            try: await bsky.like_post(client, BOT_DID, uri, thread["root_cid"])
+            except Exception as e: logger.error(f"[ENGAGEMENT] Like failed: {e}")
         for reply in plan.get("replies", []):
             try:
-                c = next((x for x in comments if x["uri"] == reply.get("uri")), None)
-                if not c: continue
-                root_uri = reply.get("root_uri", digest_uri)
-                await bsky.post_reply(client, BOT_DID, reply.get("text", ""), root_uri, "", c["uri"], c["cid"])
-            except Exception as e: logger.error(f"[ENGAGEMENT] Failed to reply to {reply.get('uri')}: {e}")
+                await bsky.post_reply(client, BOT_DID, reply.get("text", ""), digest_uri, thread["root_cid"], digest_uri, thread["root_cid"])
+            except Exception as e: logger.error(f"[ENGAGEMENT] Reply failed: {e}")
     except Exception as e: logger.error(f"[ENGAGEMENT] Failed: {e}")
