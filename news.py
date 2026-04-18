@@ -80,7 +80,7 @@ async def post_if_due(client, llm):
             score = item.get("score", 0)
             rank_status = item.get("rank_status", "same")
             trend_emoji = get_trend_emoji(rank_status)
-            line = f"{trend_emoji} {keyword} [{int(score)}]"
+            line = f"{trend_emoji} {keyword} 📊 {int(score)}"
 
             test_content = "\n".join(lines + [line])
             if len(header) + len(test_content) + len(signature) <= 300:
