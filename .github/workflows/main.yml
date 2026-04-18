@@ -76,27 +76,18 @@ jobs:
         if: steps.check-run.outputs.status == 'true'
         env:
           PYTHONUNBUFFERED: "1"
-          MODEL_PATH: "models/qwen2.5-coder-14b-instruct-q5_k_m.gguf"
-          MODEL_N_CTX: "8192"
-          MODEL_N_THREADS: "2"
-          TEMPERATURE: "0.7"
-          MAX_TOKENS: "512"
-          RESPONSE_MAX_CHARS: "300"
-          CONTEXT_SLOT_COUNT: "10"
-          SEARCH_MAX_RESULTS: "5"
-          SEARCH_TIMEOUT: "30"
-          BOT_DID: ${{ secrets.BOT_DID }}
-          BOT_HANDLE: ${{ secrets.BOT_HANDLE }}
-          BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
-          OWNER_DID: ${{ secrets.OWNER_DID }}
-          PAT: ${{ secrets.PAT }}
-          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-          LAST_PROCESSED: ${{ secrets.LAST_PROCESSED }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
           LAST_NEWS: ${{ secrets.LAST_NEWS }}
           LAST_FULL_DIGEST: ${{ secrets.LAST_FULL_DIGEST }}
           LAST_MINI_DIGEST: ${{ secrets.LAST_MINI_DIGEST }}
           ACTIVE_DIGEST_URI: ${{ secrets.ACTIVE_DIGEST_URI }}
+          BOT_HANDLE: ${{ secrets.BOT_HANDLE }}
+          BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
+          BOT_DID: ${{ secrets.BOT_DID }}
+          OWNER_DID: ${{ secrets.OWNER_DID }}
+          PAT: ${{ secrets.PAT }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          LAST_PROCESSED: ${{ secrets.LAST_PROCESSED }}
+          CONTEXT_SLOT_COUNT: 10
           CONTEXT_0: ${{ secrets.CONTEXT_0 }}
           CONTEXT_1: ${{ secrets.CONTEXT_1 }}
           CONTEXT_2: ${{ secrets.CONTEXT_2 }}
@@ -107,4 +98,5 @@ jobs:
           CONTEXT_7: ${{ secrets.CONTEXT_7 }}
           CONTEXT_8: ${{ secrets.CONTEXT_8 }}
           CONTEXT_9: ${{ secrets.CONTEXT_9 }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: python bot.py
