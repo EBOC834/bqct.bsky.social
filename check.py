@@ -140,7 +140,7 @@ async def main():
                         "has_search": has_trigger,
                         "search_type": search_type
                     })
-                    logger.info(f"Relevant #{len(relevant)}: {txt[:50]}... | reason={reason} | trigger={!t/!c/mention}")
+                    logger.info(f"Relevant #{len(relevant)}: {txt[:50]}... | reason={reason} | trigger=mention/!t/!c")
             
             logger.info(f"New notifications: {new_count} | Relevant: {len(relevant)}")
             
