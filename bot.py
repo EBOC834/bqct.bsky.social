@@ -111,7 +111,7 @@ async def main():
             logger.error(f"Auth failed: {e}")
             return
         
-        digest_due, _, _ = news.should_post()
+        digest_due, _ = news.check_mini_timer()
         has_notifications = os.path.exists("work_data.json")
         
         llm = None
