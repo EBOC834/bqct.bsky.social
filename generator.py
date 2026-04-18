@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import re
 from llama_cpp import Llama
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,20 @@ def _extract_text(response) -> str:
             return choices[0].get("text", "").strip()
     return ""
 
+def clean_artifacts(text: str) -> str:
+    text = re.sub(r'\s*[!|/][tc]\b', '', text)
+    text = re.sub(r'\s{2,}', ' ', text)
+    return text.strip()
+
+def add_signature(reply: str, search_type: str = None) -> str:
+    if not reply:
+        return reply
+    if search_type == "tavily":
+        return f"{reply}\n\nQwen | Tavily"
+    elif search_type == "chainbase":
+        return f"{reply}\n\nQwen | Chainbase"
+    return f"{reply}\n\nQwen"
+
 def generate_digest(llm, raw_line: str, max_chars: int = 248) -> str:
     prompt = f"""Rewrite the following crypto trend into a concise, engaging sentence.
 
@@ -38,12 +53,14 @@ Input: {raw_line}
 
 Output:"""
     response = llm(prompt, max_tokens=120, temperature=0.3)
-    return _extract_text(response)
+    return clean_artifacts(_extract_text(response))
 
 def get_answer(llm, memory, context, search_results, user_text, do_search, search_type):
-    prompt = f"{SYSTEM_PROMPT}\n\nContext:\n{context}\n\nUser: {user_text}\nAssistant:"
-    response = llm(prompt, max_tokens=500, temperature=0.7)
-    return _extract_text(response)
+    clean_context = clean_artifacts(context)
+    clean_user = clean_artifacts(user_text)
+    prompt = f"{SYSTEM_PROMPT}\n\nContext:\n{clean_context}\n\nUser: {clean_user}\nAssistant:"
+    response = llm(prompt, max_tokens=300, temperature=0.3)
+    return clean_artifacts(_extract_text(response))
 
 def extract_search_params(llm, user_text, root_text):
     prompt = f"""Extract search query and filters from: "{user_text}"
@@ -59,7 +76,7 @@ Output JSON: {{"query": "...", "time_range": "...", "topic": "..."}}"""
 def update_summary(llm, memory, user_text, reply):
     prompt = f"Summarize this exchange in 1 sentence:\nQ: {user_text}\nA: {reply}"
     response = llm(prompt, max_tokens=50, temperature=0.3)
-    return _extract_text(response)
+    return clean_artifacts(_extract_text(response))
 
 async def generate_engagement_plan(llm, digest_text, comments):
     comments_text = "\n".join([f"@{c['handle']}: {c['text']}" for c in comments])
