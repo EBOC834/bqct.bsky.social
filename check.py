@@ -112,13 +112,17 @@ async def main():
                     continue
                 if idx > latest_idx:
                     latest_idx = idx
-                if auth == OWNER_DID and reason == "reply":
-                    logger.info(f"Skipping owner reply (deferred to engagement): {txt[:30]}...")
-                    continue
+                
                 has_t = "!t" in txt.lower()
                 has_c = "!c" in txt.lower()
                 has_trigger = has_t or has_c
                 has_mention = f"@{BOT_HANDLE}" in txt
+                
+                # Skip owner replies ONLY if they have no trigger and no mention
+                if auth == OWNER_DID and reason == "reply" and not has_trigger and not has_mention:
+                    logger.info(f"Skipping owner reply (deferred to engagement): {txt[:30]}...")
+                    continue
+                
                 if has_trigger or has_mention or reason == "reply":
                     search_type = "tavily" if has_t else ("chainbase" if has_c else None)
                     relevant.append({
@@ -127,7 +131,7 @@ async def main():
                         "has_search": has_trigger,
                         "search_type": search_type
                     })
-                    logger.info(f"Relevant: {txt[:30]}...")
+                    logger.info(f"Relevant: {txt[:30]}... | trigger={!t/!c/mention}" if has_trigger else f"Relevant: {txt[:30]}...")
             if relevant:
                 github_output = os.getenv("GITHUB_OUTPUT", "")
                 if github_output:
