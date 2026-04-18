@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 BOT_DID = os.getenv("BOT_DID")
+OWNER_DID = os.getenv("OWNER_DID", "")
+TRIGGER_KEYWORDS = ["!t", "!c", "!s", "!r"]
 
 async def process_item(client, item, llm):
     uri, user_text = item["uri"], item["text"]
@@ -55,7 +57,16 @@ async def process_item(client, item, llm):
             }
             logger.info(f"[FALLBACK] Loaded ROOT from get_record")
     
-    recent_posts = [p for p in posts if not p.get("is_root")][:10]
+    relevant_posts = []
+    for p in posts:
+        if p.get("is_root"):
+            continue
+        if p.get("author", {}).get("did") == OWNER_DID:
+            text = p.get("text", "")
+            if any(trigger in text.lower() for trigger in TRIGGER_KEYWORDS):
+                relevant_posts.append(p)
+    
+    recent_posts = relevant_posts[:10]
     
     bsky_context_str = "\n".join([
         f"@{p.get('handle', 'unknown')}: {p.get('text', '')}" 
