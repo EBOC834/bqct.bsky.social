@@ -21,7 +21,11 @@ CRITICAL RULES:
 4. Focus on what the user is ACTUALLY asking about, not literal words in the text.
 5. Return ONLY valid JSON with keys: "query", "time_range", "topic".
 6. For "time_range": use "day", "week", "month", "year", or null.
-7. For "topic": use "news", "finance", or null (null = general, use by default).
+7. For "topic": 
+   - Use null (DEFAULT) for general search — this is the default for most queries.
+   - Use "news" ONLY if user explicitly asks for news/updates/latest developments.
+   - Use "finance" ONLY if user explicitly asks about markets/trading/financial data.
+   - NEVER use "tech", "crypto", "technology", or any other value — these are invalid.
 8. Output ONLY the JSON object, no explanations, no markdown.
 
 User message: "{user_text}"
