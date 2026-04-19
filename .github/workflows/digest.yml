@@ -8,33 +8,70 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: state/
+          key: ${{ runner.os }}-bot-timers
+      - id: check
+        run: |
+          python3 << 'EOF'
+          import os, json
+          from datetime import datetime, timezone
+
+          state_file = "state/runtime.json"
+          now = datetime.now(timezone.utc)
+          due = True
+
+          if os.path.exists(state_file):
+              try:
+                  with open(state_file) as f:
+                      data = json.load(f)
+                  timers = data.get("timers", {})
+                  last_full = timers.get("LAST_FULL_DIGEST", "")
+                  last_mini = timers.get("LAST_MINI_DIGEST", "")
+
+                  def is_due(ts, hours):
+                      if not ts or ts in ("null", "{}", ""): return True
+                      try:
+                          last = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                          return (now - last).total_seconds() >= hours * 3600
+                      except: return True
+
+                  due = is_due(last_full, 1) or is_due(last_mini, 3)
+              except:
+                  due = True
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"digest_due={'true' if due else 'false'}\n")
+          EOF
       - uses: actions/setup-python@v5
+        if: steps.check.outputs.digest_due == 'true'
         with:
           python-version: '3.10'
           cache: 'pip'
       - name: Install dependencies
+        if: steps.check.outputs.digest_due == 'true'
         env:
           CMAKE_ARGS: "-DGGML_BLAS=OFF -DGGML_CUDA=OFF"
         run: |
           pip install --upgrade pip setuptools wheel
           pip install --prefer-binary -r requirements.txt
       - name: Cache model
+        if: steps.check.outputs.digest_due == 'true'
         uses: actions/cache@v4
         with:
           path: models/
           key: ${{ runner.os }}-qwen25-coder-14b-q5km
       - name: Download model
+        if: steps.check.outputs.digest_due == 'true'
         run: |
           mkdir -p models
           F="models/qwen2.5-coder-14b-instruct-q5_k_m.gguf"
           if [ ! -f "$F" ] || [ $(stat -c%s "$F") -lt 1000000000 ]; then
             curl -L --retry 3 --retry-delay 10 -o "$F" "https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/main/qwen2.5-coder-14b-instruct-q5_k_m.gguf?download=true"
           fi
-      - uses: actions/cache@v4
-        with:
-          path: state/
-          key: ${{ runner.os }}-bot-timers
       - name: Run Digest
+        if: steps.check.outputs.digest_due == 'true'
         env:
           BOT_HANDLE: ${{ secrets.BOT_HANDLE }}
           BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
@@ -42,6 +79,7 @@ jobs:
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
         run: python core/digest.py
       - uses: actions/cache@v4
+        if: steps.check.outputs.digest_due == 'true'
         with:
           path: state/
           key: ${{ runner.os }}-bot-timers
