@@ -26,18 +26,15 @@ async def tavily_search(query: str, time_range: str = None, topic: str = None) -
             "include_answer": "basic",
             "include_raw_content": "text"
         }
-        # Добавляем параметры ТОЛЬКО если они валидные (не None и не строка "null"/"None")
-        if time_range and str(time_range).lower() not in ["null", "none", ""]:
+        if time_range and str(time_range).lower() in ["day", "week", "month", "year"]:
             payload["time_range"] = str(time_range).lower()
             logger.debug(f"[SEARCH] Added time_range={payload['time_range']}")
-        if topic and str(topic).lower() not in ["null", "none", ""]:
+        # topic: ONLY "news" or "finance" are valid for Tavily; omit for general search
+        if topic and str(topic).lower() in ["news", "finance"]:
             payload["topic"] = str(topic).lower()
             logger.debug(f"[SEARCH] Added topic={payload['topic']}")
-        
-        # Полное логирование запроса
         logger.debug(f"[SEARCH] Tavily full payload: {json_lib.dumps(payload, indent=2)}")
         logger.debug(f"[SEARCH] Tavily URL: https://api.tavily.com/search")
-        
         async with httpx.AsyncClient() as client:
             r = await client.post("https://api.tavily.com/search", json=payload, timeout=SEARCH_TIMEOUT)
             logger.debug(f"[SEARCH] Tavily response status: {r.status_code}")
@@ -114,7 +111,16 @@ async def execute_if_needed(llm, item, root_text):
         return ""
     func = provider["func"]
     supported = provider.get("supports", [])
-    kwargs = {k: v for k, v in search_params.items() if k in supported and v and str(v).lower() not in ["null", "none", ""]}
+    kwargs = {}
+    for k, v in search_params.items():
+        if k not in supported:
+            continue
+        if v is None or str(v).lower() in ["null", "none", ""]:
+            continue
+        # Strict validation for topic: only "news" or "finance" are valid
+        if k == "topic" and str(v).lower() not in ["news", "finance"]:
+            continue
+        kwargs[k] = v
     query = search_params.get("query", "")
     logger.info(f"[SEARCH] Calling {search_type} | query='{query}' | kwargs={kwargs}")
     res = await func(query, **kwargs)
