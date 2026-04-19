@@ -85,20 +85,18 @@ async def post_if_due(client, llm):
         summary = item.get("summary", "")
         
         trend_emoji = get_trend_emoji(rank)
-        score_suffix = f"\n📊 {score}"
-        emoji_prefix = f"{trend_emoji} "
-        colon_space = ": "
+        score_badge = f"📊 {score}"
+        title_prefix = f"{trend_emoji} {keyword} {score_badge}: "
         
-        max_line_len = 300 - len(header) - len(signature)
-        fixed_chars = len(emoji_prefix) + len(keyword) + len(colon_space) + len(score_suffix)
-        max_desc_chars = max_line_len - fixed_chars
+        max_desc_chars = 300 - len(header) - len(signature) - len(title_prefix)
         if max_desc_chars < 10: max_desc_chars = 10
         
         desc = generator.generate_digest(llm, keyword, summary, max_desc_chars)
-        final_line = f"{emoji_prefix}{keyword}{colon_space}{desc}{score_suffix}"
+        final_line = f"{title_prefix}{desc}"
         
+        max_line_len = 300 - len(header) - len(signature)
         if len(final_line) > max_line_len:
-            final_line = final_line[:max_line_len-3].rsplit(' ', 1)[0] + "..."
+            final_line = final_line[:max_line_len].rsplit(' ', 1)[0]
             
         post_text = header + final_line + signature
         try:
