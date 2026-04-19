@@ -12,7 +12,7 @@ def clean_query(query: str) -> str:
     return query.strip()
 
 async def tavily_search(query: str, time_range: str = None, topic: str = None) -> str:
-    logger.info(f"[SEARCH] Tavily request | query='{query}' | time_range={time_range} | topic={topic}")
+    logger.info(f"[SEARCH] Tavily request | query='{query}'")
     if not TAVILY_API_KEY:
         logger.error("[SEARCH] TAVILY_API_KEY not set")
         return "Error: TAVILY_API_KEY not set"
@@ -28,28 +28,23 @@ async def tavily_search(query: str, time_range: str = None, topic: str = None) -
         }
         if time_range and str(time_range).lower() in ["day", "week", "month", "year"]:
             payload["time_range"] = str(time_range).lower()
-            logger.debug(f"[SEARCH] Added time_range={payload['time_range']}")
-        # topic: ONLY "news" or "finance" are valid for Tavily; omit for general search
         if topic and str(topic).lower() in ["news", "finance"]:
             payload["topic"] = str(topic).lower()
-            logger.debug(f"[SEARCH] Added topic={payload['topic']}")
-        logger.debug(f"[SEARCH] Tavily full payload: {json_lib.dumps(payload, indent=2)}")
-        logger.debug(f"[SEARCH] Tavily URL: https://api.tavily.com/search")
+        
+        log_params = {k: v for k, v in payload.items() if k != "api_key"}
+        logger.debug(f"[SEARCH] Tavily payload: {json_lib.dumps(log_params, indent=2)}")
+        
         async with httpx.AsyncClient() as client:
             r = await client.post("https://api.tavily.com/search", json=payload, timeout=SEARCH_TIMEOUT)
             logger.debug(f"[SEARCH] Tavily response status: {r.status_code}")
-            logger.debug(f"[SEARCH] Tavily response headers: {dict(r.headers)}")
             if r.status_code != 200:
                 logger.error(f"[SEARCH] Tavily error: {r.status_code} | {r.text[:500]}")
                 return f"Error: Tavily API returned {r.status_code}"
             data = r.json()
-            logger.debug(f"[SEARCH] Tavily response keys: {list(data.keys())}")
             if data.get("answer"):
                 logger.info(f"[SEARCH] Tavily answer preview: {data['answer'][:150]}...")
             if data.get("results"):
                 logger.info(f"[SEARCH] Tavily results count: {len(data['results'])}")
-                for i, res in enumerate(data["results"]):
-                    logger.debug(f"[SEARCH] Result #{i+1} | title={res.get('title', '')[:50]} | url={res.get('url', '')[:50]} | score={res.get('score')}")
             return r.text
     except httpx.HTTPStatusError as e:
         logger.error(f"[SEARCH] Tavily HTTP error: {e} | response={e.response.text[:500] if e.response else 'N/A'}")
@@ -65,15 +60,12 @@ async def chainbase_search(query: str) -> list:
     try:
         async with httpx.AsyncClient() as client:
             r = await client.get("https://api.chainbase.com/tops/v1/tool/list-trending-topics?language=en", timeout=SEARCH_TIMEOUT)
-            logger.debug(f"[SEARCH] Chainbase response status: {r.status_code}")
             if r.status_code != 200:
                 logger.error(f"[SEARCH] Chainbase error: {r.status_code}")
                 return []
             data = r.json()
             items = data.get("items", [])
             logger.info(f"[SEARCH] Chainbase results count: {len(items)}")
-            if items:
-                logger.debug(f"[SEARCH] Top result | keyword={items[0].get('keyword')} | score={items[0].get('score')}")
             return items[:6]
     except Exception as e:
         logger.error(f"[SEARCH] Chainbase exception: {e}")
@@ -104,7 +96,7 @@ async def execute_if_needed(llm, item, root_text):
     user_text = item.get("text", "")
     logger.info(f"[SEARCH] Extracting params | user_text='{user_text[:50]}...' | root_text='{root_text[:50]}...'")
     search_params = extract_search_params(llm, user_text, root_text)
-    logger.info(f"[SEARCH] Extracted params: {search_params}")
+    logger.info(f"[SEARCH] Extracted params: query='{search_params.get('query')}' | time_range={search_params.get('time_range')} | topic={search_params.get('topic')}")
     provider = SEARCH_PROVIDERS.get(search_type)
     if not provider:
         logger.warning(f"[SEARCH] Unknown provider: {search_type}")
@@ -112,17 +104,17 @@ async def execute_if_needed(llm, item, root_text):
     func = provider["func"]
     supported = provider.get("supports", [])
     kwargs = {}
-    for k, v in search_params.items():
-        if k not in supported:
-            continue
+    for k in supported:
+        v = search_params.get(k)
         if v is None or str(v).lower() in ["null", "none", ""]:
             continue
-        # Strict validation for topic: only "news" or "finance" are valid
         if k == "topic" and str(v).lower() not in ["news", "finance"]:
+            continue
+        if k == "time_range" and str(v).lower() not in ["day", "week", "month", "year"]:
             continue
         kwargs[k] = v
     query = search_params.get("query", "")
-    logger.info(f"[SEARCH] Calling {search_type} | query='{query}' | kwargs={kwargs}")
+    logger.info(f"[SEARCH] Calling {search_type} | query='{query}' | kwargs={kwargs if kwargs else '(none)'}")
     res = await func(query, **kwargs)
     if is_search_result_valid(res, search_type):
         logger.info(f"[SEARCH] Success | type={search_type} | result_len={len(str(res))}")
