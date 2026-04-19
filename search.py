@@ -11,6 +11,12 @@ def clean_query(query: str) -> str:
     query = re.sub(r'\s+', ' ', query)
     return query.strip()
 
+def is_english_text(text: str) -> bool:
+    if not text:
+        return False
+    ascii_chars = sum(1 for c in text if ord(c) < 128)
+    return ascii_chars / len(text) > 0.7
+
 async def tavily_search(query: str, time_range: str = None, topic: str = None) -> str:
     logger.info(f"[SEARCH] Tavily request | query='{query}'")
     if not TAVILY_API_KEY:
@@ -79,10 +85,12 @@ async def chainbase_search(query: str) -> list:
                 return []
             data = r.json()
             items = data.get("items", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
-            logger.info(f"[SEARCH] Chainbase results count: {len(items)}")
-            if items:
-                logger.debug(f"[SEARCH] Top result | keyword={items[0].get('keyword')} | score={items[0].get('score')} | summary={items[0].get('summary', '')[:100]}...")
-            return items[:6]
+            logger.info(f"[SEARCH] Chainbase results count (raw): {len(items)}")
+            english_items = [i for i in items if is_english_text(i.get('keyword', '')) and is_english_text(i.get('summary', ''))]
+            logger.info(f"[SEARCH] Chainbase results count (english): {len(english_items)}")
+            if english_items:
+                logger.debug(f"[SEARCH] Top english result | keyword={english_items[0].get('keyword')} | score={english_items[0].get('score')} | summary={english_items[0].get('summary', '')[:100]}...")
+            return english_items[:6]
     except Exception as e:
         logger.error(f"[SEARCH] Chainbase exception: {e}")
         import traceback
@@ -161,4 +169,4 @@ def extract_search_params(llm, context, user_text):
 SEARCH_PROVIDERS = {
     "tavily": {"func": tavily_search, "supports": ["time_range", "topic"]},
     "chainbase": {"func": chainbase_search, "supports": []}
-}
+    }
