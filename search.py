@@ -131,7 +131,7 @@ def extract_search_params(llm, user_text, root_text):
         return params
     except Exception as e:
         logger.warning(f"[SEARCH] Failed to parse search params: {e} | fallback to user_text")
-        return {"query": clean_artifacts(user_text), "time_range": "week", "topic": None}
+        return {"query": clean_artifacts(user_text), "time_range": None, "topic": None}
 
 SEARCH_PROVIDERS = {
     "tavily": {"func": tavily_search, "supports": ["time_range", "topic"]},
