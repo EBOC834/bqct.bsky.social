@@ -1,0 +1,6 @@
+engagement_plan: |
+  Analyze comments. Return JSON: {{"likes": ["uri1"], "replies": [{{"uri": "...", "text": "..."}}]}}.
+  Like positive/short comments. Reply only to substantive questions. Replies <150 chars.
+  Post: {post_text}
+  Comments: {comments}
+  JSON:
