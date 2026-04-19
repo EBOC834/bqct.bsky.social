@@ -1,4 +1,3 @@
-# core/digest.py
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -12,43 +11,38 @@ from core.search import chainbase_search
 from core.generator import get_model, generate_digest_desc, generate_engagement_plan
 from core.state import load_timer, save_timer
 
-async def post_digest(client, llm, is_full=True):
-    now = datetime.now(timezone.utc).isoformat()
-    timer_name = "LAST_FULL" if is_full else "LAST_MINI"
-    if load_timer(timer_name):
-        return
-    trends = await chainbase_search("")
+async def post_full_digest(client, llm, trends):
     if not trends:
-        return
+        return None
+    t = trends[0]
+    header = "TOP CRYPTO TREND:\n"
+    title = f"{get_emoji(t.get('rank_status'))} {t['keyword']} 📊 {int(t['score'])}: "
     sig = "\nQwen | Chainbase TOPS 💜💛"
-    if not is_full:
-        header = "TOP CRYPTO TRENDS:\n"
-        lines = []
-        for t in trends:
-            line = f"{get_emoji(t.get('rank_status'))} {t['keyword']} 📊 {int(t['score'])}"
-            if len(header) + len("\n".join(lines + [line])) + len(sig) <= PLATFORM_LIMIT:
-                lines.append(line)
-            else:
-                break
-        if lines:
-            txt = header + "\n".join(lines) + sig
-            resp = await post_root(client, BOT_DID, txt)
-            save_timer(timer_name, now)
-            save_timer("LAST_FULL", now)
-            return resp.get("uri")
-    else:
-        t = trends[0]
-        header = "TOP CRYPTO TREND:\n"
-        title = f"{get_emoji(t.get('rank_status'))} {t['keyword']} 📊 {int(t['score'])}: "
-        max_desc = PLATFORM_LIMIT - len(header) - len(sig) - len(title)
-        desc = generate_digest_desc(llm, t['keyword'], t.get('summary', ''), max(20, max_desc))
-        txt = header + title + desc + sig
-        if len(txt) > PLATFORM_LIMIT:
-            txt = txt[:PLATFORM_LIMIT].rsplit(' ', 1)[0]
-        resp = await post_root(client, BOT_DID, txt)
-        save_timer(timer_name, now)
-        return resp.get("uri")
-    return None
+    max_desc = PLATFORM_LIMIT - len(header) - len(sig) - len(title)
+    desc = generate_digest_desc(llm, t['keyword'], t.get('summary', ''), max(20, max_desc))
+    txt = header + title + desc + sig
+    if len(txt) > PLATFORM_LIMIT:
+        txt = txt[:PLATFORM_LIMIT].rsplit(' ', 1)[0]
+    resp = await post_root(client, BOT_DID, txt)
+    return resp.get("uri")
+
+async def post_mini_digest(client, trends):
+    if not trends:
+        return None
+    header = "TOP CRYPTO TRENDS:\n"
+    sig = "\nQwen | Chainbase TOPS 💜💛"
+    lines = []
+    for t in trends:
+        line = f"{get_emoji(t.get('rank_status'))} {t['keyword']} 📊 {int(t['score'])}"
+        if len(header) + len("\n".join(lines + [line])) + len(sig) <= PLATFORM_LIMIT:
+            lines.append(line)
+        else:
+            break
+    if not lines:
+        return None
+    txt = header + "\n".join(lines) + sig
+    resp = await post_root(client, BOT_DID, txt)
+    return resp.get("uri")
 
 async def process_engagement(client, llm, post_uri):
     r = await client.get("/xrpc/com.atproto.repo.getRecord", params={"repo": post_uri.split("/")[2], "collection": "app.bsky.feed.post", "rkey": post_uri.split("/")[4]})
@@ -85,12 +79,24 @@ async def process_engagement(client, llm, post_uri):
             await client.post("/xrpc/com.atproto.repo.createRecord", json={"repo": BOT_DID, "collection": "app.bsky.feed.post", "record": record})
 
 async def main():
+    now = datetime.now(timezone.utc).isoformat()
     async with get_client() as client:
         await login(client, os.getenv("BOT_HANDLE"), os.getenv("BOT_PASSWORD"))
         llm = get_model()
-        uri = await post_digest(client, llm, True)
-        if not uri:
-            uri = await post_digest(client, llm, False)
+        trends = await chainbase_search("")
+        if not trends:
+            return
+        full_due = not load_timer("LAST_FULL_DIGEST")
+        mini_due = not load_timer("LAST_MINI_DIGEST")
+        uri = None
+        if full_due:
+            uri = await post_full_digest(client, llm, trends)
+            if uri:
+                save_timer("LAST_FULL_DIGEST", now)
+        if mini_due and not uri:
+            uri = await post_mini_digest(client, trends)
+            if uri:
+                save_timer("LAST_MINI_DIGEST", now)
         if uri:
             await asyncio.sleep(15)
             await process_engagement(client, llm, uri)
