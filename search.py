@@ -19,23 +19,29 @@ async def tavily_search(query: str, time_range: str = None, topic: str = None) -
     try:
         clean_q = clean_query(query)
         payload = {
-            "api_key": TAVILY_API_KEY,
             "query": clean_q,
             "search_depth": "basic",
             "max_results": 3,
-            "include_answer": "basic",
+            "include_answer": True,
             "include_raw_content": "text"
         }
-        if time_range and str(time_range).lower() in ["day", "week", "month", "year"]:
+        if time_range and str(time_range).lower() in ["day", "week", "month", "year", "d", "w", "m", "y"]:
             payload["time_range"] = str(time_range).lower()
-        if topic and str(topic).lower() in ["news", "finance"]:
+        if topic and str(topic).lower() in ["news", "finance", "general"]:
             payload["topic"] = str(topic).lower()
+        elif topic is None or str(topic).lower() in ["null", "none", ""]:
+            payload["topic"] = "general"
         
-        log_params = {k: v for k, v in payload.items() if k != "api_key"}
+        log_params = {k: v for k, v in payload.items()}
         logger.debug(f"[SEARCH] Tavily payload: {json_lib.dumps(log_params, indent=2)}")
         
+        headers = {
+            "Authorization": f"Bearer {TAVILY_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
         async with httpx.AsyncClient() as client:
-            r = await client.post("https://api.tavily.com/search", json=payload, timeout=SEARCH_TIMEOUT)
+            r = await client.post("https://api.tavily.com/search", json=payload, headers=headers, timeout=SEARCH_TIMEOUT)
             logger.debug(f"[SEARCH] Tavily response status: {r.status_code}")
             if r.status_code != 200:
                 logger.error(f"[SEARCH] Tavily error: {r.status_code} | {r.text[:500]}")
@@ -59,16 +65,32 @@ async def chainbase_search(query: str) -> list:
     logger.info(f"[SEARCH] Chainbase request | query='{query}'")
     try:
         async with httpx.AsyncClient() as client:
-            r = await client.get("https://api.chainbase.com/tops/v1/tool/list-trending-topics?language=en", timeout=SEARCH_TIMEOUT)
+            if query and query.strip():
+                clean_q = clean_query(query)
+                keywords = re.findall(r'\b[a-zA-Z]{2,}\b', clean_q)
+                keyword = next((k for k in keywords if k.lower() not in ['oke', 'bro', 'btw', 'what', 'about', 'ticker', 'in', 'trends', 'the', 'and', 'but', 'is', 'are', 'was', 'were']), keywords[0] if keywords else '')
+                url = f"https://api.chainbase.com/tops/v1/tool/search-narrative-candidates?keyword={keyword}&language=en"
+                logger.debug(f"[SEARCH] Chainbase search URL: {url}")
+                r = await client.get(url, timeout=SEARCH_TIMEOUT)
+            else:
+                url = "https://api.chainbase.com/tops/v1/tool/list-trending-topics?language=en"
+                logger.debug(f"[SEARCH] Chainbase trending URL: {url}")
+                r = await client.get(url, timeout=SEARCH_TIMEOUT)
+            
+            logger.debug(f"[SEARCH] Chainbase response status: {r.status_code}")
             if r.status_code != 200:
                 logger.error(f"[SEARCH] Chainbase error: {r.status_code}")
                 return []
             data = r.json()
-            items = data.get("items", [])
+            items = data.get("items", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
             logger.info(f"[SEARCH] Chainbase results count: {len(items)}")
+            if items:
+                logger.debug(f"[SEARCH] Top result | keyword={items[0].get('keyword')} | score={items[0].get('score')} | summary={items[0].get('summary', '')[:100]}...")
             return items[:6]
     except Exception as e:
         logger.error(f"[SEARCH] Chainbase exception: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
         return []
 
 def is_search_result_valid(result, search_type: str) -> bool:
@@ -108,9 +130,9 @@ async def execute_if_needed(llm, item, root_text):
         v = search_params.get(k)
         if v is None or str(v).lower() in ["null", "none", ""]:
             continue
-        if k == "topic" and str(v).lower() not in ["news", "finance"]:
+        if k == "topic" and str(v).lower() not in ["news", "finance", "general"]:
             continue
-        if k == "time_range" and str(v).lower() not in ["day", "week", "month", "year"]:
+        if k == "time_range" and str(v).lower() not in ["day", "week", "month", "year", "d", "w", "m", "y"]:
             continue
         kwargs[k] = v
     query = search_params.get("query", "")
