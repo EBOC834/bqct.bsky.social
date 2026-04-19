@@ -1,7 +1,7 @@
 name: Run Digest
 on:
   schedule:
-    - cron: '0 */3 * * *'
+    - cron: '0 */3 * * * *'
   workflow_dispatch:
 jobs:
   digest:
@@ -16,7 +16,7 @@ jobs:
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-py310-deps-${{ hashFiles('**/requirements.txt') }}
-      - run: pip install httpx PyNaCl pyyaml beautifulsoup4 trafilatura
+      - run: pip install -r requirements.txt
       - name: Cache model
         uses: actions/cache@v4
         with:
