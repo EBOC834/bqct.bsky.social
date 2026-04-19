@@ -53,16 +53,17 @@ CRITICAL RULES:
    - IGNORE [ROOT] content completely
    - Infer the NEW topic from user's intent and recent thread context
    - If intent is still unclear after 2+ such messages, output: {{"query": "clarify new topic", "time_range": null, "topic": null}}
-4. Ignore filler words, mentions, triggers (!t, !c), and meta-requests like "tell me a simple sentence".
-5. Focus on what the user is ACTUALLY asking about, not literal words in the text.
-6. Return ONLY valid JSON with keys: "query", "time_range", "topic".
-7. For "time_range": use "day", "week", "month", "year", "d", "w", "m", "y", or null.
-8. For "topic": 
+4. For Chainbase (!c) searches: extract ONLY the core keyword or ticker (e.g., "BTC", "ETH", "RWA", "AI Agent"). Remove all filler words, questions, and meta-text. Output a single word or short phrase.
+5. Ignore filler words, mentions, triggers (!t, !c), and meta-requests like "tell me a simple sentence".
+6. Focus on what the user is ACTUALLY asking about, not literal words in the text.
+7. Return ONLY valid JSON with keys: "query", "time_range", "topic".
+8. For "time_range": use "day", "week", "month", "year", "d", "w", "m", "y", or null.
+9. For "topic": 
    - Use null (DEFAULT) for general search — this is the default for most queries.
    - Use "news" ONLY if user explicitly asks for news/updates/latest developments.
    - Use "finance" ONLY if user explicitly asks about markets/trading/financial data.
    - NEVER use "tech", "crypto", "technology", or any other value — these are invalid.
-9. Output ONLY the JSON object, no explanations, no markdown.
+10. Output ONLY the JSON object, no explanations, no markdown.
 
 Thread Context: {{context}}
 User message: "{{user_text}}"
@@ -70,11 +71,14 @@ Output JSON:"""
 
 DIGEST_REFINE_SYSTEM = """Write a concise description for the crypto trend "{keyword}".
 
+HARD CONSTRAINT: Your output MUST be strictly under {max_desc_chars} characters. This is non-negotiable.
+
 RULES:
 1. DO NOT repeat "{keyword}" or variations. Start directly with the insight.
-2. Focus on the core fact/update from the context.
-3. STRICTLY under {max_desc_chars} characters.
-4. Output ONLY the description text.
+2. Focus on the core fact/update from the context: price action, volume, catalyst, outlook.
+3. Use short, factual sentences. Avoid connectors like "however", "furthermore", "additionally".
+4. End at a complete thought — do not cut mid-sentence.
+5. Output ONLY the description text, no quotes, no markers.
 
 Context: {summary}
 Output:"""
@@ -101,21 +105,33 @@ def clean_artifacts(text: str) -> str:
     return text.strip()
 
 def generate_digest(llm, keyword: str, summary: str, max_desc_chars: int) -> str:
+    safety_margin = 15
+    target_chars = max(20, max_desc_chars - safety_margin)
     prompt = f"""Write a concise description for the crypto trend "{keyword}".
+
+HARD CONSTRAINT: Your output MUST be strictly under {target_chars} characters.
 
 RULES:
 1. DO NOT repeat "{keyword}" or variations. Start directly with the insight.
-2. Focus on the core fact/update from the context.
-3. STRICTLY under {max_desc_chars} characters.
-4. Output ONLY the description text.
+2. Focus on the core fact: price action, volume, catalyst, outlook.
+3. Use short, factual sentences. Avoid connectors.
+4. End at a complete thought — do not cut mid-sentence.
+5. Output ONLY the description text.
 
 Context: {summary}
 Output:"""
-    response = llm(prompt, max_tokens=min(max_desc_chars + 10, 100), temperature=0.3)
+    response = llm(prompt, max_tokens=min(target_chars + 20, 100), temperature=0.3)
     raw = clean_artifacts(_extract_text(response))
     desc = raw.split('\n')[0].strip()
     if len(desc) > max_desc_chars:
-        desc = desc[:max_desc_chars-3].rsplit(' ', 1)[0] + "..."
+        desc = desc[:max_desc_chars]
+        last_period = desc.rfind('.')
+        last_space = desc.rfind(' ')
+        cut_point = max(last_period, last_space)
+        if cut_point > max_desc_chars * 0.7:
+            desc = desc[:cut_point].rstrip('.,;:')
+        else:
+            desc = desc[:max_desc_chars].rstrip('.,;:')
     return desc
 
 def get_answer(llm, memory, context, search_results, user_text, do_search, search_type, max_chars: int):
