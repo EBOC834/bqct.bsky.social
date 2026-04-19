@@ -42,7 +42,9 @@ async def post_if_due(client, llm):
         try:
             last_rec = await bsky.get_record(client, last_digest_uri)
             last_text = last_rec["value"].get("text", "") if last_rec else ""
+            logger.info("[ENGAGEMENT] Processing previous digest engagement...")
             await engagement.process_digest_engagement(client, llm, last_digest_uri, last_text)
+            logger.info("[ENGAGEMENT] Previous digest engagement completed")
         except Exception as e: logger.error(f"Engagement failed: {e}")
         
     trends = await search.chainbase_search("")
@@ -73,6 +75,7 @@ async def post_if_due(client, llm):
                 state.save_daily_post_ts(now_utc)
                 state._write_secret("LAST_MINI_DIGEST", now_utc)
                 state._write_secret("LAST_FULL_DIGEST", now_utc)
+                logger.info(f"[DIGEST] Posted mini digest: {new_uri}")
             return True
         except Exception as e:
             logger.error(f"Mini post failed: {e}")
@@ -108,6 +111,7 @@ async def post_if_due(client, llm):
                 state.save_active_digest_uri(new_uri)
                 state.save_daily_post_ts(now_utc)
                 state._write_secret("LAST_FULL_DIGEST", now_utc)
+                logger.info(f"[DIGEST] Posted full digest: {new_uri}")
             return True
         except Exception as e:
             logger.error(f"Full post failed: {e}")
