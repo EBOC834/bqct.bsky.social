@@ -60,29 +60,80 @@ def _save_timer(secret_name, value):
 
 async def post_full_digest(client, llm, trends):
     try:
-        if not trends: return None
+        if not trends:
+            print("[FULL] ERROR: No trends data")
+            return None
         t = trends[0]
+        keyword = t['keyword']
+        score = int(t['score'])
+        rank_status = t.get('rank_status', 'same')
+        summary = t.get('summary', '')
+        
+        print(f"[FULL] Input data:")
+        print(f"  Keyword: {keyword}")
+        print(f"  Score: {score}")
+        print(f"  Rank: {rank_status}")
+        print(f"  Summary ({len(summary)} chars): {summary[:200]}...")
+        
+        emoji_char = get_emoji(rank_status)
         header = to_monospace("TOP CRYPTO TREND:\n\n")
-        title = f"{get_emoji(t.get('rank_status'))} {t['keyword']} 📊 {int(t['score'])}: "
+        title = f"{emoji_char} {keyword} 📊 {score}: "
         sig = "\n\n" + to_monospace("Qwen | Chainbase TOPS") + " 💜💛"
+        
         max_desc = PLATFORM_LIMIT - len(header) - len(title) - len(sig)
-        if max_desc < 20: max_desc = 20
-        raw_llm = generate_digest_desc(llm, t['keyword'], t.get('summary', ''), max_desc)
+        print(f"[FULL] Character limits:")
+        print(f"  Platform limit: {PLATFORM_LIMIT}")
+        print(f"  Header len: {len(header)}")
+        print(f"  Title len: {len(title)}")
+        print(f"  Signature len: {len(sig)}")
+        print(f"  Max description: {max_desc} chars")
+        
+        if max_desc < 20:
+            print(f"[FULL] ERROR: max_desc too small ({max_desc})")
+            return None
+        
+        print(f"[FULL] Calling LLM with max_desc={max_desc}...")
+        raw_llm = generate_digest_desc(llm, keyword, summary, max_desc)
+        print(f"[FULL] LLM raw output ({len(raw_llm)} chars): '{raw_llm}'")
+        
         desc = raw_llm.strip()
-        if not desc: return None
+        if not desc:
+            print("[FULL] ERROR: LLM returned empty description")
+            return None
+        
+        print(f"[FULL] Generated description ({len(desc)} chars): {desc}")
+        
         txt = f"{header}{title}{desc}{sig}"
+        print(f"[FULL] Full post BEFORE trim ({len(txt)} chars):")
+        print(txt)
+        
         if len(txt) > PLATFORM_LIMIT:
             safe = PLATFORM_LIMIT - len(sig)
-            txt = txt[:safe].rsplit(' ', 1)[0] + sig
+            trimmed = txt[:safe].rsplit(' ', 1)[0]
+            txt = trimmed + sig
+            print(f"[FULL] Post trimmed to {len(txt)} chars")
+        
+        print(f"[FULL] FINAL POST ({len(txt)} chars):")
+        print(txt)
+        
         resp = await post_root(client, BOT_DID, txt)
-        return resp.get("uri")
+        uri = resp.get("uri")
+        if uri:
+            print(f"[FULL] SUCCESS: Posted {uri}")
+            return uri
+        print("[FULL] ERROR: post_root returned no URI")
+        return None
     except Exception as e:
-        print(f"[FULL] Exception: {e}")
+        print(f"[FULL] EXCEPTION: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 async def post_mini_digest(client, trends):
     try:
-        if not trends: return None
+        if not trends:
+            print("[MINI] ERROR: No trends data")
+            return None
         header = to_monospace("TOP CRYPTO TRENDS:\n\n")
         sig = "\n\n" + to_monospace("Qwen | Chainbase TOPS") + " 💜💛"
         lines = []
@@ -91,13 +142,22 @@ async def post_mini_digest(client, trends):
             mono = to_monospace(line)
             if len(header) + len("\n".join(lines + [mono])) + len(sig) <= PLATFORM_LIMIT:
                 lines.append(mono)
-            else: break
-        if not lines: return None
+            else:
+                break
+        if not lines:
+            print("[MINI] ERROR: No lines fit")
+            return None
         txt = header + "\n".join(lines) + sig
+        print(f"[MINI] Posted ({len(txt)} chars): {txt[:100]}...")
         resp = await post_root(client, BOT_DID, txt)
-        return resp.get("uri")
+        uri = resp.get("uri")
+        if uri:
+            print(f"[MINI] SUCCESS: {uri}")
+            return uri
+        print("[MINI] ERROR: No URI")
+        return None
     except Exception as e:
-        print(f"[MINI] Exception: {e}")
+        print(f"[MINI] EXCEPTION: {e}")
         return None
 
 async def process_engagement(client, llm, post_uri):
@@ -139,26 +199,31 @@ async def main():
         await login(client, os.getenv("BOT_HANDLE"), os.getenv("BOT_PASSWORD"))
         llm = get_model()
         trends = await chainbase_search("")
-        if not trends: return
+        if not trends:
+            print("[MAIN] ERROR: No trends from Chainbase")
+            return
+        print(f"[MAIN] Got {len(trends)} trends from Chainbase")
         full_due, full_ts = _is_due("LAST_FULL_DIGEST", 1)
         mini_due, mini_ts = _is_due("LAST_MINI_DIGEST", 3)
-        print(f"[MAIN] Timers: full_due={full_due}, mini_due={mini_due}")
+        print(f"[MAIN] Timers: full_due={full_due} (last={full_ts}), mini_due={mini_due} (last={mini_ts})")
         uri = None
         if full_due:
             print("[MAIN] Attempting FULL...")
             uri = await post_full_digest(client, llm, trends)
             if uri:
                 _save_timer("LAST_FULL_DIGEST", full_ts)
-                print(f"[MAIN] Saved LAST_FULL_DIGEST")
+                print(f"[MAIN] Saved LAST_FULL_DIGEST={full_ts}")
         if not uri and mini_due:
             print("[MAIN] Attempting MINI...")
             uri = await post_mini_digest(client, trends)
             if uri:
                 _save_timer("LAST_MINI_DIGEST", mini_ts)
-                print(f"[MAIN] Saved LAST_MINI_DIGEST")
+                print(f"[MAIN] Saved LAST_MINI_DIGEST={mini_ts}")
         if uri:
             await asyncio.sleep(15)
             await process_engagement(client, llm, uri)
+        else:
+            print("[MAIN] Nothing posted")
 
 if __name__ == "__main__":
     asyncio.run(main())
