@@ -1,0 +1,55 @@
+name: Test Search API
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Search query'
+        required: true
+        type: string
+      search_type:
+        description: 'Search provider'
+        required: true
+        type: choice
+        options:
+          - tavily
+          - chainbase
+        default: tavily
+      time_range:
+        description: 'Time range'
+        required: false
+        type: choice
+        options:
+          - ''
+          - day
+          - week
+          - month
+          - year
+      topic:
+        description: 'Topic'
+        required: false
+        type: choice
+        options:
+          - ''
+          - news
+          - finance
+
+jobs:
+  test-search:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install httpx
+        run: pip install httpx
+      - name: Run test
+        env:
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          SEARCH_QUERY: ${{ github.event.inputs.query }}
+          SEARCH_TYPE: ${{ github.event.inputs.search_type }}
+          TIME_RANGE: ${{ github.event.inputs.time_range }}
+          TOPIC: ${{ github.event.inputs.topic }}
+        run: python test_search.py
