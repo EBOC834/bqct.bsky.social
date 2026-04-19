@@ -25,10 +25,11 @@ async def tavily_search(query: str, time_range: str = None, topic: str = None) -
             "include_answer": "basic",
             "include_raw_content": "text"
         }
-        if time_range in ["day", "week", "month", "year"]:
+        # Добавляем параметры ТОЛЬКО если они валидные (не None и не строка "null")
+        if time_range and time_range not in ["null", "None", ""]:
             payload["time_range"] = time_range
             logger.debug(f"[SEARCH] Added time_range={time_range}")
-        if topic in ["news", "finance"]:
+        if topic and topic not in ["null", "None", ""]:
             payload["topic"] = topic
             logger.debug(f"[SEARCH] Added topic={topic}")
         logger.debug(f"[SEARCH] Tavily payload: {payload}")
@@ -105,7 +106,7 @@ async def execute_if_needed(llm, item, root_text):
         return ""
     func = provider["func"]
     supported = provider.get("supports", [])
-    kwargs = {k: v for k, v in search_params.items() if k in supported and v}
+    kwargs = {k: v for k, v in search_params.items() if k in supported and v and v not in ["null", "None", ""]}
     query = search_params.get("query", "")
     logger.info(f"[SEARCH] Calling {search_type} | query='{query}' | kwargs={kwargs}")
     res = await func(query, **kwargs)
@@ -119,8 +120,8 @@ def extract_search_params(llm, user_text, root_text):
     from prompts import QUERY_REFINE_SYSTEM
     from generator import _extract_text, clean_artifacts
     import json
-    prompt = f"{QUERY_REFINE_SYSTEM}\nUser message: \"{user_text}\"\nContext: \"{root_text}\"\nOutput JSON:"
-    logger.debug(f"[SEARCH] LLM prompt for params: {prompt[:200]}...")
+    prompt = f"{QUERY_REFINE_SYSTEM.format(user_text=user_text, root_text=root_text)}"
+    logger.debug(f"[SEARCH] LLM prompt for params: {prompt[:300]}...")
     try:
         response = llm(prompt, max_tokens=150, temperature=0.2)
         text = clean_artifacts(_extract_text(response))
