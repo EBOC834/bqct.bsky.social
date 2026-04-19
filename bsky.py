@@ -121,7 +121,17 @@ async def post_record(client, bot_did, text, reply_obj=None, facets=None):
     if facets:
         record["facets"] = facets
     payload = {"repo": bot_did, "collection": "app.bsky.feed.post", "record": record}
+    
+    # Логирование перед отправкой для отладки 400
+    logger.debug(f"[POST] Payload: repo={bot_did}, text_len={len(text)}, reply_obj={reply_obj is not None}")
+    logger.debug(f"[POST] Text preview: {text[:200]}...")
+    if len(text) > 300:
+        logger.warning(f"[POST] Text exceeds 300 chars: {len(text)}")
+    
     r = await client.post("/xrpc/com.atproto.repo.createRecord", json=payload)
+    logger.debug(f"[POST] Response status: {r.status_code}")
+    if r.status_code != 200:
+        logger.error(f"[POST] Error response: {r.text[:500]}")
     r.raise_for_status()
     return r.json()
 
