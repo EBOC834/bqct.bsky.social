@@ -49,31 +49,25 @@ def add_signature(reply: str, search_type: str = None) -> str:
 def generate_digest(llm, raw_line: str, max_chars: int = 248) -> str:
     prompt = f"{DIGEST_REFINE_SYSTEM.format(max_chars=max_chars)}\nInput: {raw_line}\nOutput:"
     response = llm(prompt, max_tokens=120, temperature=0.3)
-    return clean_artifacts(_extract_text(response))
+    raw = clean_artifacts(_extract_text(response))
+    return raw.split('\n')[0].strip()
 
 def get_answer(llm, memory, context, search_results, user_text, do_search, search_type):
-    logger.debug(f"[LLM] get_answer | memory_len={len(memory)} | context_len={len(context)} | search_results_len={len(search_results) if search_results else 0} | user_text_len={len(user_text)}")
     clean_context = clean_artifacts(context)
     clean_user = clean_artifacts(user_text)
     prompt = f"{SYSTEM_PROMPT}\nContext:\n{clean_context}\nUser: {clean_user}\nAssistant:"
-    logger.debug(f"[LLM] Final prompt preview: {prompt[:300]}...")
     response = llm(prompt, max_tokens=MAX_TOKENS, temperature=TEMPERATURE)
-    raw_reply = clean_artifacts(_extract_text(response))
-    logger.info(f"[LLM] Generated reply | len={len(raw_reply)} | preview={raw_reply[:150]}...")
-    return raw_reply
+    return clean_artifacts(_extract_text(response))
 
 def extract_search_params(llm, user_text, root_text):
     prompt = f"{QUERY_REFINE_SYSTEM}\nUser message: \"{user_text}\"\nContext: \"{root_text}\"\nOutput JSON:"
-    logger.debug(f"[LLM] extract_search_params prompt: {prompt[:200]}...")
     response = llm(prompt, max_tokens=150, temperature=0.2)
     try:
         text = _extract_text(response)
         params = json.loads(text)
         params["query"] = clean_artifacts(params.get("query", ""))
-        logger.debug(f"[LLM] extract_search_params result: {params}")
         return params
     except:
-        logger.warning(f"[LLM] extract_search_params fallback | user_text={user_text[:50]}...")
         return {"query": clean_artifacts(user_text), "time_range": "w", "topic": "tech"}
 
 def update_summary(llm, memory, user_text, reply):
