@@ -77,7 +77,7 @@ async def post_full_digest(client, llm, trends):
         score = int(t['score'])
         rank_status = t.get('rank_status', 'same')
         summary = t.get('summary', '')
-        print(f"[FULL] Input ")
+        print(f"[FULL] Input data:")
         print(f"  Keyword: {keyword}")
         print(f"  Score: {score}")
         print(f"  Rank: {rank_status}")
