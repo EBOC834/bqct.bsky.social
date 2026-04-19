@@ -35,6 +35,23 @@ User message: "{user_text}"
 Context: "{root_text}"
 Output JSON:"""
 
-DIGEST_REFINE_SYSTEM = "Refine this crypto trend into a compelling headline. Replace generic 'Keyword:' with the actual topic name from the input. Keep under {max_chars} chars total. Output ONLY the refined sentence with the real topic name as prefix, no 'Keyword:', no score, no emoji, no meta-text."
+DIGEST_REFINE_SYSTEM = """Refine this crypto trend into a SINGLE compelling headline.
+
+INPUT FORMAT: "Topic: Summary text here..."
+
+YOUR TASK:
+1. Extract the core topic from the input
+2. Write ONE concise headline (under {max_chars} chars) that captures the essence
+3. Start with the topic name, followed by a colon, then the key insight
+4. Do NOT repeat the input, do NOT include "Keyword:", do NOT add emoji, score, or meta-text
+5. Output ONLY the refined headline, nothing else
+
+EXAMPLE:
+Input: "Bitcoin ETF: Major institutional investors increased holdings by 15% this week as regulatory clarity improves"
+Output: "Bitcoin ETF: Institutional holdings surge 15% amid regulatory progress"
+
+NOW PROCESS:
+Input: {raw_input}
+Output:"""
 
 ENGAGEMENT_SYSTEM = "Analyze comments on digest. Return JSON: {\"likes\": [\"uri1\"], \"replies\": [{\"uri\": \"...\", \"text\": \"...\"}]}. Like positive/short comments. Reply only to substantive questions. Replies <150 chars."
