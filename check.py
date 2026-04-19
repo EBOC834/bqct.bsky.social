@@ -5,6 +5,7 @@ import httpx
 import base64
 import json
 import logging
+import re
 from nacl import encoding, public
 from datetime import datetime, timezone
 
@@ -75,6 +76,41 @@ async def fetch_with_retry(client, url, headers=None, params=None, max_retries=2
                 continue
             raise
 
+def normalize_uri(uri: str) -> str:
+    if not uri:
+        return ""
+    if uri.startswith("at://"):
+        return uri
+    match = re.match(r"https://bsky\.app/profile/([^/]+)/post/([^/?#]+)", uri)
+    if match:
+        handle_or_did, rkey = match.groups()
+        if handle_or_did.startswith("did:plc:"):
+            return f"at://{handle_or_did}/app.bsky.feed.post/{rkey}"
+    return uri
+
+async def is_digest_post(client, token, uri: str) -> bool:
+    if not uri:
+        return False
+    normalized = normalize_uri(uri)
+    parts = normalized.split("/")
+    if len(parts) < 5:
+        return False
+    did, collection, rkey = parts[2], parts[3], parts[4]
+    try:
+        r = await fetch_with_retry(
+            client,
+            f"https://bsky.social/xrpc/com.atproto.repo.getRecord",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"repo": did, "collection": collection, "rkey": rkey},
+            timeout=10
+        )
+        if r.status_code == 200:
+            text = r.json().get("value", {}).get("text", "")
+            return "Qwen | Chainbase TOPS" in text
+    except Exception:
+        pass
+    return False
+
 async def get_known_digest_uris(client, token) -> set:
     uris = set()
     for secret in ["LAST_DIGEST_URI", "ACTIVE_DIGEST_URI"]:
@@ -88,7 +124,7 @@ async def get_known_digest_uris(client, token) -> set:
             if r.status_code == 200:
                 val = r.json().get("value", "").strip()
                 if val and val not in ("{}", "null", ""):
-                    uris.add(val)
+                    uris.add(normalize_uri(val))
         except Exception:
             pass
     return uris
@@ -146,8 +182,14 @@ async def main():
                     record = n.get("record", {})
                     reply_ref = record.get("reply", {})
                     parent_uri = reply_ref.get("parent", {}).get("uri") if reply_ref else None
-                    if parent_uri and parent_uri in known_digest_uris:
-                        logger.info(f"[DEFER] Skipping digest reply (engagement will handle): {txt[:50]}...")
+                    normalized_parent = normalize_uri(parent_uri) if parent_uri else ""
+                    is_deferred = False
+                    if normalized_parent and normalized_parent in known_digest_uris:
+                        is_deferred = True
+                    elif parent_uri and await is_digest_post(client, token, parent_uri):
+                        is_deferred = True
+                    if is_deferred:
+                        logger.info(f"[DEFER] Skipping digest reply (engagement will handle later): {txt[:50]}...")
                         continue
                 if auth == OWNER_DID and reason == "reply":
                     search_type = "tavily" if has_t else ("chainbase" if has_c else None)
@@ -157,7 +199,7 @@ async def main():
                         "has_search": has_trigger,
                         "search_type": search_type
                     })
-                    logger.info(f"Owner reply queued: {txt[:50]}... | search={has_trigger}")
+                    logger.info(f"[QUEUE] Processing owner reply: {txt[:50]}... | search={has_trigger}")
                 elif has_trigger or has_mention or reason == "reply":
                     search_type = "tavily" if has_t else ("chainbase" if has_c else None)
                     relevant.append({
@@ -166,7 +208,7 @@ async def main():
                         "has_search": has_trigger,
                         "search_type": search_type
                     })
-                    logger.info(f"Relevant: {txt[:50]}...")
+                    logger.info(f"[QUEUE] Processing notification: {txt[:50]}... | search={has_trigger}")
             if relevant:
                 github_output = os.getenv("GITHUB_OUTPUT", "")
                 if github_output:
@@ -175,7 +217,7 @@ async def main():
                 await update_last_processed_secret(latest_idx)
                 with open("work_data.json", "w") as f:
                     json.dump({"items": relevant}, f)
-                logger.info(f"Saved {len(relevant)} items")
+                logger.info(f"Saved {len(relevant)} items for processing")
             else:
                 if notifications:
                     await update_last_processed_secret(latest_idx)
