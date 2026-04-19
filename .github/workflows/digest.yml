@@ -9,14 +9,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: {python-version: '3.10'}
+        with:
+          python-version: '3.10'
       - name: Cache pip
         uses: actions/cache@v4
-        with: {path: ~/.cache/pip, key: ${{ runner.os }}-py310-deps-${{ hashFiles('**/requirements.txt') }} }
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-py310-deps-${{ hashFiles('**/requirements.txt') }}
       - run: pip install httpx PyNaCl pyyaml beautifulsoup4 trafilatura
       - name: Cache model
         uses: actions/cache@v4
-        with: {path: models/, key: ${{ runner.os }}-qwen25-coder-14b-q5km}
+        with:
+          path: models/
+          key: ${{ runner.os }}-qwen25-coder-14b-q5km
       - name: Download model
         run: |
           mkdir -p models
@@ -25,7 +30,9 @@ jobs:
             curl -L --retry 3 --retry-delay 10 -o "$F" "https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/main/qwen2.5-coder-14b-instruct-q5_k_m.gguf?download=true"
           fi
       - uses: actions/cache@v4
-        with: {path: state/, key: ${{ runner.os }}-bot-state-${{ github.run_id }}}
+        with:
+          path: state/
+          key: ${{ runner.os }}-bot-timers
       - name: Run Digest
         env:
           BOT_HANDLE: ${{ secrets.BOT_HANDLE }}
@@ -34,4 +41,6 @@ jobs:
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
         run: python core/digest.py
       - uses: actions/cache@v4
-        with: {path: state/, key: ${{ runner.os }}-bot-state-${{ github.run_id }}}
+        with:
+          path: state/
+          key: ${{ runner.os }}-bot-timers
