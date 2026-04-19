@@ -72,6 +72,24 @@ async def fetch_with_retry(client, url, headers=None, params=None, max_retries=2
                 continue
             raise
 
+async def get_known_digest_uris() -> set:
+    uris = set()
+    async with httpx.AsyncClient() as client:
+        for secret in ["LAST_DIGEST_URI", "ACTIVE_DIGEST_URI"]:
+            try:
+                r = await client.get(
+                    f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/{secret}",
+                    headers={"Authorization": f"token {PAT}"},
+                    timeout=10
+                )
+                if r.status_code == 200:
+                    val = r.json().get("value", "").strip()
+                    if val and val not in ("{}", "null", ""):
+                        uris.add(val)
+            except Exception:
+                pass
+    return uris
+
 async def main():
     try:
         if is_empty(LAST_PROCESSED):
@@ -79,7 +97,10 @@ async def main():
             logger.info(f"FIRST RUN: Setting timestamp to NOW: {now}")
             await update_last_processed_secret(now)
             sys.exit(0)
+        
         logger.info(f"Checking notifications since {LAST_PROCESSED}")
+        known_digest_uris = await get_known_digest_uris()
+        
         async with httpx.AsyncClient() as client:
             r = await client.post(
                 "https://bsky.social/xrpc/com.atproto.server.createSession",
@@ -116,6 +137,13 @@ async def main():
                 has_c = "!c" in txt.lower()
                 has_trigger = has_t or has_c
                 has_mention = f"@{BOT_HANDLE}" in txt
+                if reason == "reply":
+                    record = n.get("record", {})
+                    reply_ref = record.get("reply", {})
+                    parent_uri = reply_ref.get("parent", {}).get("uri") if reply_ref else None
+                    if parent_uri and parent_uri in known_digest_uris:
+                        logger.info(f"[DEFER] Skipping digest reply (engagement will handle): {txt[:50]}...")
+                        continue
                 if auth == OWNER_DID and reason == "reply":
                     search_type = "tavily" if has_t else ("chainbase" if has_c else None)
                     relevant.append({
@@ -124,7 +152,7 @@ async def main():
                         "has_search": has_trigger,
                         "search_type": search_type
                     })
-                    logger.info(f"Relevant owner reply: {txt[:50]}... | search={has_trigger}")
+                    logger.info(f"Owner reply queued: {txt[:50]}... | search={has_trigger}")
                 elif has_trigger or has_mention or reason == "reply":
                     search_type = "tavily" if has_t else ("chainbase" if has_c else None)
                     relevant.append({
