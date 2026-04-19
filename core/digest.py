@@ -1,9 +1,7 @@
-# core/digest.py
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import os
 import asyncio
 from datetime import datetime, timezone
 from core.config import BOT_DID, PLATFORM_LIMIT
@@ -12,37 +10,45 @@ from core.search import chainbase_search
 from core.generator import get_model, generate_digest_desc, generate_engagement_plan
 from core.state import load_timer, save_timer
 
+def to_monospace(text: str) -> str:
+    result = []
+    for c in text:
+        if 'A' <= c <= 'Z':
+            result.append(chr(ord(c) + 0x1D670 - ord('A')))
+        elif 'a' <= c <= 'z':
+            result.append(chr(ord(c) + 0x1D68A - ord('a')))
+        elif '0' <= c <= '9':
+            result.append(chr(ord(c) + 0x1D7CE - ord('0')))
+        else:
+            result.append(c)
+    return ''.join(result)
+
 async def post_full_digest(client, llm, trends):
     if not trends:
         return None
     t = trends[0]
-    header = "TOP CRYPTO TREND:\n\n"
+    header = to_monospace("TOP CRYPTO TREND:\n\n")
     title = f"{get_emoji(t.get('rank_status'))} {t['keyword']} 📊 {int(t['score'])}: "
-    sig = "\n\nQwen | Chainbase TOPS 💜💛"
+    sig = "\n\n" + to_monospace("Qwen | Chainbase TOPS") + " 💜💛"
     max_desc = PLATFORM_LIMIT - len(header) - len(title) - len(sig)
     if max_desc < 20: max_desc = 20
-    
     raw_llm = generate_digest_desc(llm, t['keyword'], t.get('summary', ''), max_desc)
     print(f"[LLM RAW OUTPUT]: {raw_llm}")
-    
     desc = raw_llm.strip()
     print(f"[GENERATED BODY]: {desc}")
-    
     txt = f"{header}{title}{desc}{sig}"
     if len(txt) > PLATFORM_LIMIT:
         safe_len = PLATFORM_LIMIT - len(sig)
         txt = txt[:safe_len].rsplit(' ', 1)[0] + sig
-    
     print(f"[FINAL DIGEST SENT]: {txt}")
-    
     resp = await post_root(client, BOT_DID, txt)
     return resp.get("uri")
 
 async def post_mini_digest(client, trends):
     if not trends:
         return None
-    header = "TOP CRYPTO TRENDS:\n\n"
-    sig = "\n\nQwen | Chainbase TOPS 💜💛"
+    header = to_monospace("TOP CRYPTO TRENDS:\n\n")
+    sig = "\n\n" + to_monospace("Qwen | Chainbase TOPS") + " 💜💛"
     lines = []
     for t in trends:
         line = f"{get_emoji(t.get('rank_status'))} {t['keyword']} 📊 {int(t['score'])}"
@@ -53,6 +59,7 @@ async def post_mini_digest(client, trends):
     if not lines:
         return None
     txt = header + "\n".join(lines) + sig
+    print(f"[FINAL DIGEST SENT]: {txt}")
     resp = await post_root(client, BOT_DID, txt)
     return resp.get("uri")
 
