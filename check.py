@@ -117,18 +117,14 @@ async def main():
                 has_trigger = has_t or has_c
                 has_mention = f"@{BOT_HANDLE}" in txt
                 if auth == OWNER_DID and reason == "reply":
-                    if has_trigger or has_mention:
-                        search_type = "tavily" if has_t else ("chainbase" if has_c else None)
-                        relevant.append({
-                            "uri": uri,
-                            "text": txt,
-                            "has_search": has_trigger,
-                            "search_type": search_type
-                        })
-                        logger.info(f"Relevant owner reply: {txt[:50]}... | trigger={has_trigger} | mention={has_mention}")
-                    else:
-                        logger.info(f"Skipping owner reply (no trigger/mention): {txt[:30]}...")
-                        continue
+                    search_type = "tavily" if has_t else ("chainbase" if has_c else None)
+                    relevant.append({
+                        "uri": uri,
+                        "text": txt,
+                        "has_search": has_trigger,
+                        "search_type": search_type
+                    })
+                    logger.info(f"Relevant owner reply: {txt[:50]}... | search={has_trigger}")
                 elif has_trigger or has_mention or reason == "reply":
                     search_type = "tavily" if has_t else ("chainbase" if has_c else None)
                     relevant.append({
