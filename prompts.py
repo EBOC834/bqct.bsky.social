@@ -30,16 +30,17 @@ CRITICAL RULES:
    - IGNORE [ROOT] content completely
    - Infer the NEW topic from user's intent and recent thread context
    - If intent is still unclear after 2+ such messages, output: {{"query": "clarify new topic", "time_range": null, "topic": null}}
-4. Ignore filler words, mentions, triggers (!t, !c), and meta-requests like "tell me a simple sentence".
-5. Focus on what the user is ACTUALLY asking about, not literal words in the text.
-6. Return ONLY valid JSON with keys: "query", "time_range", "topic".
-7. For "time_range": use "day", "week", "month", "year", "d", "w", "m", "y", or null.
-8. For "topic": 
+4. For Chainbase (!c) searches: extract ONLY the core keyword or ticker (e.g., "BTC", "ETH", "RWA", "AI Agent"). Remove all filler words, questions, and meta-text. Output a single word or short phrase.
+5. Ignore filler words, mentions, triggers (!t, !c), and meta-requests like "tell me a simple sentence".
+6. Focus on what the user is ACTUALLY asking about, not literal words in the text.
+7. Return ONLY valid JSON with keys: "query", "time_range", "topic".
+8. For "time_range": use "day", "week", "month", "year", "d", "w", "m", "y", or null.
+9. For "topic": 
    - Use null (DEFAULT) for general search — this is the default for most queries.
    - Use "news" ONLY if user explicitly asks for news/updates/latest developments.
    - Use "finance" ONLY if user explicitly asks about markets/trading/financial data.
    - NEVER use "tech", "crypto", "technology", or any other value — these are invalid.
-9. Output ONLY the JSON object, no explanations, no markdown.
+10. Output ONLY the JSON object, no explanations, no markdown.
 
 Thread Context: {{context}}
 User message: "{{user_text}}"
