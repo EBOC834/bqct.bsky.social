@@ -12,10 +12,20 @@ def clean_query(query: str) -> str:
     return query.strip()
 
 def is_english_text(text: str) -> bool:
-    if not text:
-        return False
+    if not text: return False
     ascii_chars = sum(1 for c in text if ord(c) < 128)
     return ascii_chars / len(text) > 0.7
+
+def format_chainbase_results(items: list) -> str:
+    lines = []
+    for i, item in enumerate(items[:6], 1):
+        kw = item.get("keyword", "Unknown")
+        score = item.get("score", 0)
+        rank = item.get("current_rank", "N/A")
+        status = item.get("rank_status", "same")
+        summary = item.get("summary", "")[:200]
+        lines.append(f"{i}. {kw} (Score: {score:.1f} | Rank: {rank} | Trend: {status})\nSummary: {summary}")
+    return "\n\n".join(lines)
 
 async def tavily_search(query: str, time_range: str = None, topic: str = None) -> str:
     logger.info(f"[SEARCH] Tavily request | query='{query}'")
@@ -39,11 +49,7 @@ async def tavily_search(query: str, time_range: str = None, topic: str = None) -
         log_params = {k: v for k, v in payload.items()}
         logger.debug(f"[SEARCH] Tavily payload: {json_lib.dumps(log_params, indent=2)}")
         
-        headers = {
-            "Authorization": f"Bearer {TAVILY_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
+        headers = {"Authorization": f"Bearer {TAVILY_API_KEY}", "Content-Type": "application/json"}
         async with httpx.AsyncClient() as client:
             r = await client.post("https://api.tavily.com/search", json=payload, headers=headers, timeout=SEARCH_TIMEOUT)
             logger.debug(f"[SEARCH] Tavily response status: {r.status_code}")
@@ -65,37 +71,41 @@ async def tavily_search(query: str, time_range: str = None, topic: str = None) -
         logger.debug(traceback.format_exc())
         return f"Error: {str(e)}"
 
-async def chainbase_search(query: str) -> list:
+async def chainbase_search(query: str) -> str:
     logger.info(f"[SEARCH] Chainbase request | query='{query}'")
     try:
         async with httpx.AsyncClient() as client:
             if query and query.strip():
                 clean_q = clean_query(query)
                 url = f"https://api.chainbase.com/tops/v1/tool/search-narrative-candidates?keyword={clean_q}"
-                logger.debug(f"[SEARCH] Chainbase search URL: {url}")
-                r = await client.get(url, timeout=SEARCH_TIMEOUT)
             else:
                 url = "https://api.chainbase.com/tops/v1/tool/list-trending-topics?language=en"
-                logger.debug(f"[SEARCH] Chainbase trending URL: {url}")
-                r = await client.get(url, timeout=SEARCH_TIMEOUT)
-            
+            logger.debug(f"[SEARCH] Chainbase URL: {url}")
+            r = await client.get(url, timeout=SEARCH_TIMEOUT)
             logger.debug(f"[SEARCH] Chainbase response status: {r.status_code}")
             if r.status_code != 200:
                 logger.error(f"[SEARCH] Chainbase error: {r.status_code}")
-                return []
+                return ""
             data = r.json()
             items = data.get("items", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
-            logger.info(f"[SEARCH] Chainbase results count (raw): {len(items)}")
+            logger.info(f"[SEARCH] Chainbase raw results count: {len(items)}")
+            
             english_items = [i for i in items if is_english_text(i.get('keyword', '')) and is_english_text(i.get('summary', ''))]
-            logger.info(f"[SEARCH] Chainbase results count (english): {len(english_items)}")
-            if english_items:
-                logger.debug(f"[SEARCH] Top english result | keyword={english_items[0].get('keyword')} | score={english_items[0].get('score')} | summary={english_items[0].get('summary', '')[:100]}...")
-            return english_items[:6]
+            english_items.sort(key=lambda x: x.get('score', 0), reverse=True)
+            logger.info(f"[SEARCH] Chainbase english results count: {len(english_items)}")
+            
+            if not english_items:
+                logger.warning("[SEARCH] No english results found for Chainbase")
+                return ""
+            
+            formatted = format_chainbase_results(english_items)
+            logger.info(f"[SEARCH] Chainbase formatted length: {len(formatted)} chars")
+            return formatted
     except Exception as e:
         logger.error(f"[SEARCH] Chainbase exception: {e}")
         import traceback
         logger.debug(traceback.format_exc())
-        return []
+        return ""
 
 def is_search_result_valid(result, search_type: str) -> bool:
     if not result:
@@ -108,8 +118,8 @@ def is_search_result_valid(result, search_type: str) -> bool:
         logger.debug(f"[SEARCH] Result valid | type={search_type} | len={len(str(result))}")
         return True
     if search_type == "chainbase":
-        valid = isinstance(result, list) and len(result) > 0
-        logger.debug(f"[SEARCH] Result valid={valid} | type={search_type} | count={len(result) if isinstance(result, list) else 0}")
+        valid = isinstance(result, str) and len(result) > 10
+        logger.debug(f"[SEARCH] Result valid={valid} | type={search_type} | len={len(result)}")
         return valid
     logger.debug(f"[SEARCH] Result valid | type={search_type}")
     return True
@@ -151,14 +161,13 @@ async def execute_if_needed(llm, item, root_text):
 def extract_search_params(llm, context, user_text):
     from prompts import QUERY_REFINE_SYSTEM
     from generator import _extract_text, clean_artifacts
-    import json
     prompt = QUERY_REFINE_SYSTEM.replace("{{context}}", context).replace("{{user_text}}", user_text)
     logger.debug(f"[SEARCH] LLM prompt for params: {prompt[:500]}...")
     try:
         response = llm(prompt, max_tokens=150, temperature=0.2)
         text = clean_artifacts(_extract_text(response))
         logger.debug(f"[SEARCH] LLM raw response: {text[:300]}...")
-        params = json.loads(text)
+        params = json_lib.loads(text)
         params["query"] = clean_artifacts(params.get("query", ""))
         logger.debug(f"[SEARCH] Parsed params: {params}")
         return params
@@ -169,4 +178,4 @@ def extract_search_params(llm, context, user_text):
 SEARCH_PROVIDERS = {
     "tavily": {"func": tavily_search, "supports": ["time_range", "topic"]},
     "chainbase": {"func": chainbase_search, "supports": []}
-    }
+}
