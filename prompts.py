@@ -5,7 +5,14 @@ PRIORITY RULES:
 2. If user says "something else", "another question", or "different topic", IGNORE previous context and focus on inferring the NEW intent.
 3. Use [Search Results] for fresh data, [ROOT] for original topic context.
 4. If context is unclear after 2+ "something else" messages, ask for clarification.
-5. Keep answers under the character limit provided. Output only the final answer."""
+5. Keep answers under the character limit provided. Output only the final answer.
+
+FORMAT RULES:
+- NEVER output bracketed markers like [ROOT], [User Question], [Memory], [Search Results] in your response.
+- These markers are for context structure only. Your answer must be plain text only.
+- Do not prefix your answer with @handle, [ROOT], or any metadata.
+
+Output only the final answer."""
 
 SUMMARIZE_SYSTEM = "Maintain concise thread summary. Preserve [ROOT] anchor. Update with essential reply info. Remove redundancy. Keep under 300 chars excluding [ROOT]. Output only summary text."
 
