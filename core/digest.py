@@ -1,3 +1,4 @@
+# core/digest.py
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -10,18 +11,15 @@ from core.bsky import get_client, login, post_root, like_post, get_emoji
 from core.search import chainbase_search
 from core.generator import get_model, generate_digest_desc, generate_engagement_plan
 
+_MONO_MAP = str.maketrans(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+    "𝙰𝙱𝙲𝙳𝙴𝙶𝙷𝙹𝙺𝙻𝙼𝙽𝙾𝚀𝚁𝚂𝚃𝚄𝚅𝚇𝚈𝚉"
+    "𝚊𝚌𝚎𝚏𝚐𝚑𝚓𝚕𝚖𝚘𝚙𝚚𝚛𝚜𝚞𝚟𝚡𝚢𝚣"
+    "𝟶𝟸𝟹𝟻𝟼𝟽𝟾"
+)
+
 def to_monospace(text: str) -> str:
-    result = []
-    for c in text:
-        if 'A' <= c <= 'Z':
-            result.append(chr(ord(c) + 0x1D670 - ord('A')))
-        elif 'a' <= c <= 'z':
-            result.append(chr(ord(c) + 0x1D68A - ord('a')))
-        elif '0' <= c <= '9':
-            result.append(chr(ord(c) + 0x1D7F6 - ord('0')))
-        else:
-            result.append(c)
-    return ''.join(result)
+    return text.translate(_MONO_MAP)
 
 def _read_state():
     state_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "runtime.json")
@@ -112,6 +110,7 @@ async def post_full_digest(client, llm, trends):
             trimmed = txt[:safe].rsplit(' ', 1)[0]
             txt = trimmed + sig
             print(f"[FULL] Post trimmed to {len(txt)} chars")
+        print(f"[DEBUG] First 5 chars ordinals (Normal=65, Mono=120432): {[ord(c) for c in txt[:5]]}")
         print(f"[FULL] FINAL POST ({len(txt)} chars):")
         print(txt)
         resp = await post_root(client, BOT_DID, txt)
@@ -146,6 +145,7 @@ async def post_mini_digest(client, trends):
             print("[MINI] ERROR: No lines fit")
             return None
         txt = header + "\n".join(lines) + sig
+        print(f"[DEBUG] First 5 chars ordinals: {[ord(c) for c in txt[:5]]}")
         print(f"[MINI] Posted ({len(txt)} chars): {txt[:100]}...")
         resp = await post_root(client, BOT_DID, txt)
         uri = resp.get("uri")
