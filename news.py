@@ -65,7 +65,7 @@ async def post_if_due(client, llm):
                 lines.append(line)
             else: break
         if not lines: return False
-        post_text = header + "\n".join(lines) + signature
+        post_text = header + "\n\n".join(lines) + signature
         try:
             resp = await bsky.post_root(client, BOT_DID, post_text)
             new_uri = resp.get("uri")
