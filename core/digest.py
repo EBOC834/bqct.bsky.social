@@ -17,8 +17,6 @@ def to_monospace(text: str) -> str:
             result.append(chr(ord(c) + 0x1D670 - ord('A')))
         elif 'a' <= c <= 'z':
             result.append(chr(ord(c) + 0x1D68A - ord('a')))
-        elif '0' <= c <= '9':
-            result.append(chr(ord(c) + 0x1D7CE - ord('0')))
         else:
             result.append(c)
     return ''.join(result)
