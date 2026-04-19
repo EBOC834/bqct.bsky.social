@@ -194,7 +194,7 @@ async def process_engagement(client, llm, post_uri):
         print(f"[ENGAGEMENT] Error: {e}")
 
 async def main():
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc).isoformat() + "Z"
     async with get_client() as client:
         await login(client, os.getenv("BOT_HANDLE"), os.getenv("BOT_PASSWORD"))
         llm = get_model()
@@ -211,14 +211,14 @@ async def main():
             print("[MAIN] Attempting FULL...")
             uri = await post_full_digest(client, llm, trends)
             if uri:
-                _save_timer("LAST_FULL_DIGEST", full_ts)
-                print(f"[MAIN] Saved LAST_FULL_DIGEST={full_ts}")
+                _save_timer("LAST_FULL_DIGEST", now)
+                print(f"[MAIN] Saved LAST_FULL_DIGEST={now}")
         if not uri and mini_due:
             print("[MAIN] Attempting MINI...")
             uri = await post_mini_digest(client, trends)
             if uri:
-                _save_timer("LAST_MINI_DIGEST", mini_ts)
-                print(f"[MAIN] Saved LAST_MINI_DIGEST={mini_ts}")
+                _save_timer("LAST_MINI_DIGEST", now)
+                print(f"[MAIN] Saved LAST_MINI_DIGEST={now}")
         if uri:
             await asyncio.sleep(15)
             await process_engagement(client, llm, uri)
