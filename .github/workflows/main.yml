@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install deps
-        run: pip install httpx PyNaCl
+        run: pip install httpx PyNaCl llama-cpp-python
       - name: Check if bot should run
         id: check
         run: |
