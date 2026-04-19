@@ -15,19 +15,16 @@ MAX_TOKENS = int(os.getenv("MAX_TOKENS", "512"))
 SYSTEM_PROMPT = "You are a concise, expert crypto/tech analyst. Answer strictly based on provided context. Prioritize [ROOT] post. If asked for 'other' or 'different' news, avoid repeating thread context. Synthesize ONLY new info from search. If unknown, state so. Output only final answer."
 SUMMARIZE_SYSTEM = "Maintain concise thread summary. Preserve [ROOT] anchor. Update with essential reply info. Remove redundancy. Keep under 300 chars excluding [ROOT]. Output only summary text."
 QUERY_REFINE_SYSTEM = "Extract concise search query from user question. Return only query string. Remove fillers, mentions, triggers. Identify core entities/topics. Output ONLY valid JSON: {\"query\": \"...\", \"time_range\": \"d|w|m|null\", \"topic\": \"tech|crypto|news|null\"}"
-DIGEST_REFINE_SYSTEM = "Refine this crypto trend into a compelling headline. Replace generic 'Keyword:' with the actual topic name from the input. Keep under {max_chars} chars total. Output ONLY the refined sentence with the real topic name as prefix, no 'Keyword:', no score, no emoji, no meta-text."
 ENGAGEMENT_SYSTEM = "Analyze comments on digest. Return JSON: {\"likes\": [\"uri1\"], \"replies\": [{\"uri\": \"...\", \"text\": \"...\"}]}. Like positive/short comments. Reply only to substantive questions. Replies <150 chars."
 
 def get_model():
     return Llama(model_path=MODEL_PATH, n_ctx=MODEL_N_CTX, n_threads=MODEL_N_THREADS, verbose=False)
 
 def _extract_text(response) -> str:
-    if isinstance(response, str):
-        return response.strip()
+    if isinstance(response, str): return response.strip()
     if isinstance(response, dict):
         choices = response.get("choices", [])
-        if choices and isinstance(choices[0], dict):
-            return choices[0].get("text", "").strip()
+        if choices and isinstance(choices[0], dict): return choices[0].get("text", "").strip()
     return ""
 
 def clean_artifacts(text: str) -> str:
@@ -38,19 +35,28 @@ def clean_artifacts(text: str) -> str:
     return text.strip()
 
 def add_signature(reply: str, search_type: str = None) -> str:
-    if not reply:
-        return reply
-    if search_type == "tavily":
-        return f"{reply}\n\nQwen | Tavily"
-    elif search_type == "chainbase":
-        return f"{reply}\n\nQwen | Chainbase"
+    if not reply: return reply
+    if search_type == "tavily": return f"{reply}\n\nQwen | Tavily"
+    elif search_type == "chainbase": return f"{reply}\n\nQwen | Chainbase"
     return f"{reply}\n\nQwen"
 
-def generate_digest(llm, raw_line: str, max_chars: int = 248) -> str:
-    prompt = f"{DIGEST_REFINE_SYSTEM.format(max_chars=max_chars)}\nInput: {raw_line}\nOutput:"
-    response = llm(prompt, max_tokens=120, temperature=0.3)
+def generate_digest(llm, keyword: str, summary: str, max_desc_chars: int) -> str:
+    prompt = f"""Write a concise description for the crypto trend "{keyword}".
+    
+    RULES:
+    1. DO NOT repeat "{keyword}" or any variation of it. Start directly with the insight.
+    2. Focus on the core fact/update from the context.
+    3. STRICTLY under {max_desc_chars} characters.
+    4. Output ONLY the description text.
+    
+    Context: {summary}
+    Output:"""
+    response = llm(prompt, max_tokens=min(max_desc_chars + 10, 100), temperature=0.3)
     raw = clean_artifacts(_extract_text(response))
-    return raw.split('\n')[0].strip()
+    desc = raw.split('\n')[0].strip()
+    if len(desc) > max_desc_chars:
+        desc = desc[:max_desc_chars-3].rsplit(' ', 1)[0] + "..."
+    return desc
 
 def get_answer(llm, memory, context, search_results, user_text, do_search, search_type):
     clean_context = clean_artifacts(context)
@@ -68,7 +74,7 @@ def extract_search_params(llm, user_text, root_text):
         params["query"] = clean_artifacts(params.get("query", ""))
         return params
     except:
-        return {"query": clean_artifacts(user_text), "time_range": "w", "topic": "tech"}
+        return {"query": clean_artifacts(user_text), "time_range": "week", "topic": None}
 
 def update_summary(llm, memory, user_text, reply):
     prompt = f"{SUMMARIZE_SYSTEM}\nQ: {user_text}\nA: {reply}\nSummary:"
@@ -79,8 +85,5 @@ async def generate_engagement_plan(llm, digest_text, comments):
     comments_text = "\n".join([f"@{c['handle']}: {c['text']}" for c in comments])
     prompt = f"{ENGAGEMENT_SYSTEM}\nPost: \"{digest_text}\"\nComments:\n{comments_text}\nJSON:"
     response = llm(prompt, max_tokens=200, temperature=0.3)
-    try:
-        text = _extract_text(response)
-        return json.loads(text)
-    except:
-        return {"likes": [], "replies": []}
+    try: return json.loads(_extract_text(response))
+    except: return {"likes": [], "replies": []}
