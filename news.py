@@ -110,8 +110,6 @@ async def post_if_due(client, llm):
         max_text_chars = 248 - len(score_suffix)
         raw_input = f"{keyword}: {summary}"
         final_text = generator.generate_digest(llm, raw_input, max_chars=max_text_chars)
-        final_text = re.sub(r'\s*🆕\s*:?\s*\d+\s*$', '', final_text)
-        final_text = re.sub(r'\s*\[score:\s*\d+\]\s*:', ':', final_text)
         final_line = f"{trend_emoji} {final_text}{score_suffix}"
         max_content_len = 300 - len(header) - len(signature)
         final_line = smart_truncate(final_line, max_content_len)
