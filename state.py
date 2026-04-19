@@ -1,8 +1,9 @@
 import os
 import json
+import time
+import hashlib
 import base64
 import httpx
-import hashlib
 from nacl import encoding, public
 
 PAT = os.getenv("PAT")
@@ -27,12 +28,9 @@ def _read_secret(secret_name: str) -> str:
                 if r.status_code == 200:
                     return r.json().get("value", "")
                 if r.status_code in (429, 500, 502) and i < 2:
-                    import time
                     time.sleep(2 ** i)
         except:
-            if i < 2:
-                import time
-                time.sleep(2 ** i)
+            if i < 2: time.sleep(2 ** i)
     return ""
 
 def _write_secret(secret_name: str, value: str):
@@ -55,12 +53,9 @@ def _write_secret(secret_name: str, value: str):
                 if put_resp.status_code in (201, 204):
                     return True
                 if put_resp.status_code in (429, 500, 502) and i < 2:
-                    import time
                     time.sleep(2 ** i)
         except:
-            if i < 2:
-                import time
-                time.sleep(2 ** i)
+            if i < 2: time.sleep(2 ** i)
     return False
 
 def _slot(tid):
@@ -89,23 +84,27 @@ def save_daily_post_ts(ts: str):
 
 def merge_contexts(root_post, recent_posts, memory, search_results, user_question) -> str:
     parts = []
+    bot_handle = os.getenv("BOT_HANDLE", "")
+    if user_question:
+        parts.append(f"[User Question]:\n{user_question}")
+    if memory:
+        parts.append(f"\n[Memory]:\n{memory}")
+    if search_results:
+        parts.append(f"\n[Search Results]:\n{search_results}")
     if root_post:
         text = root_post.get("text", "")
         if root_post.get("link_hints"):
             text += "\n" + "\n".join(root_post["link_hints"])
         if root_post.get("alts"):
             text += "\n" + "\n".join(root_post["alts"])
-        parts.append(f"@{root_post.get('handle', 'unknown')}: {text}")
+        parts.append(f"\n[ROOT] @{root_post.get('handle', 'unknown')}: {text}")
     for p in recent_posts:
+        if p.get("handle") == bot_handle:
+            continue
         text = p.get("text", "")
         if p.get("link_hints"):
             text += "\n" + "\n".join(p["link_hints"])
         if p.get("alts"):
             text += "\n" + "\n".join(p["alts"])
         parts.append(f"@{p.get('handle', 'unknown')}: {text}")
-    if memory:
-        parts.append(f"\n[Memory Summary]:\n{memory}")
-    if search_results:
-        parts.append(f"\n[Search Results]:\n{search_results}")
-    parts.append(f"\n[User Question]:\n{user_question}")
     return "\n".join(parts)
