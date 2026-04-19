@@ -1,0 +1,83 @@
+name: Check Notifications
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.10'}
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-py310-deps-${{ hashFiles('**/requirements.txt') }}
+      - run: pip install httpx PyNaCl pyyaml
+      - id: scan
+        env:
+          BOT_HANDLE: ${{ secrets.BOT_HANDLE }}
+          BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
+          OWNER_DID: ${{ secrets.OWNER_DID }}
+          PAT: ${{ secrets.PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 -c "
+          import os, sys, asyncio, httpx, json, re
+          from nacl import encoding, public
+          from datetime import datetime, timezone
+          
+          PAT = os.getenv('PAT')
+          REPO = os.getenv('GITHUB_REPOSITORY')
+          LAST = os.getenv('LAST_INDEXED', '').strip()
+          
+          if not LAST:
+              now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+              with open(os.getenv('GITHUB_OUTPUT'), 'a') as f: f.write(f'has_work=false\nlast_indexed={now}')
+              sys.exit(0)
+          
+          async def main():
+              async with httpx.AsyncClient() as c:
+                  r = await c.post('https://bsky.social/xrpc/com.atproto.server.createSession', json={'identifier': os.getenv('BOT_HANDLE'), 'password': os.getenv('BOT_PASSWORD')})
+                  r.raise_for_status()
+                  token = r.json()['accessJwt']
+                  
+                  r = await c.get('https://bsky.social/xrpc/app.bsky.notification.listNotifications', headers={'Authorization': f'Bearer {token}'}, params={'limit': 20})
+                  r.raise_for_status()
+                  notifs = r.json().get('notifications', [])
+                  
+                  queue = []
+                  latest = LAST
+                  for n in notifs:
+                      idx = n.get('indexedAt', '')
+                      if idx <= LAST: continue
+                      if idx > latest: latest = idx
+                      auth = n.get('author', {}).get('did', '')
+                      reason = n.get('reason', '')
+                      txt = (n.get('record', {}).get('text') or '').strip()
+                      uri = n.get('uri', '')
+                      
+                      has_t = '!t' in txt.lower()
+                      has_c = '!c' in txt.lower()
+                      has_trigger = has_t or has_c
+                      
+                      if reason == 'reply' or auth == os.getenv('OWNER_DID') or has_trigger:
+                          stype = 'tavily' if has_t else ('chainbase' if has_c else None)
+                          queue.append({'uri': uri, 'text': txt, 'has_search': has_trigger, 'search_type': stype})
+                  
+                  if queue:
+                      os.makedirs('state', exist_ok=True)
+                      with open('state/runtime.json', 'w') as f: json.dump({'queue': queue, 'last_indexed': latest, 'contexts': {}, 'timers': {}}, f)
+                      with open(os.getenv('GITHUB_OUTPUT'), 'a') as f: f.write('has_work=true\nlast_indexed=' + latest)
+                  else:
+                      with open(os.getenv('GITHUB_OUTPUT'), 'a') as f: f.write('has_work=false\nlast_indexed=' + latest)
+          
+          asyncio.run(main())
+          "
+      - uses: actions/cache@v4
+        if: steps.scan.outputs.has_work == 'true'
+        with:
+          path: state/
+          key: ${{ runner.os }}-bot-state-${{ github.run_id }}
