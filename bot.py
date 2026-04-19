@@ -94,10 +94,10 @@ async def process_item(client, item, llm):
         if provider:
             func = provider["func"]
             supported = provider.get("supports", [])
-            kwargs = {k: v for k, v in search_params.items() if k in supported and v}
-            kwargs.pop('query', None)
-            logger.info(f"[SEARCH] Calling {search_type} | query='{search_params['query']}' | kwargs={kwargs}")
-            search_results = await func(search_params["query"], **kwargs)
+            kwargs = {k: v for k, v in search_params.items() if k in supported and v and str(v).lower() not in ["null", "none", ""]}
+            query = search_params.get("query", "")
+            logger.info(f"[SEARCH] Calling {search_type} | query='{query}' | kwargs={kwargs}")
+            search_results = await func(query, **kwargs)
             if search.is_search_result_valid(search_results, search_type):
                 search_results = search_results[:MAX_SEARCH_RESULTS_LEN]
                 logger.info(f"[SEARCH] Success | results_len={len(search_results)} (truncated to {MAX_SEARCH_RESULTS_LEN})")
@@ -115,12 +115,17 @@ async def process_item(client, item, llm):
         logger.warning(f"[CONTEXT] Context truncated to 7000 chars | original_len={len(full_context)}")
     logger.info(f"[CONTEXT] Final context:\n{full_context}")
     
-    logger.info(f"[LLM] Generating answer | do_search={do_search} | search_type={search_type}")
-    reply = generator.get_answer(llm, memory, full_context, search_results, user_text, do_search, search_type)
-    reply = generator.add_signature(reply, search_type if do_search else None)
-    logger.info(f"[REPLY] Final reply:\n{reply}")
+    max_reply_chars = generator.get_max_reply_chars(search_type if do_search else None)
+    logger.info(f"[LLM] Generating answer | do_search={do_search} | search_type={search_type} | max_reply_chars={max_reply_chars}")
+    reply = generator.get_answer(llm, memory, full_context, search_results, user_text, do_search, search_type, max_reply_chars)
+    signature = generator.get_signature(search_type if do_search else None)
+    final_reply = f"{reply}{signature}"
+    logger.info(f"[REPLY] Final reply ({len(final_reply)}/300 chars):\n{final_reply}")
     
-    logger.debug(f"[POST] Calling post_reply | bot_did={BOT_DID} | reply_len={len(reply)} | root_uri={root_uri} | root_cid={root_cid[:10] if root_cid else '(empty)'}... | parent_uri={uri} | parent_cid={parent_cid[:10] if parent_cid else '(empty)'}...")
+    if len(final_reply) > 300:
+        logger.error(f"[REPLY] Reply exceeds 300 chars: {len(final_reply)} — this should not happen")
+    
+    logger.debug(f"[POST] Calling post_reply | bot_did={BOT_DID} | reply_len={len(final_reply)} | root_uri={root_uri} | root_cid={root_cid[:10] if root_cid else '(empty)'}... | parent_uri={uri} | parent_cid={parent_cid[:10] if parent_cid else '(empty)'}...")
     try:
         result = await bsky.post_reply(client, BOT_DID, reply, root_uri, root_cid, uri, parent_cid)
         logger.info("Reply posted successfully.")
