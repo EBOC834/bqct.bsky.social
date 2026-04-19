@@ -3,12 +3,15 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
+import httpx
+import base64
+import json
 from datetime import datetime, timezone
-from core.config import BOT_DID, PLATFORM_LIMIT
+from nacl import encoding, public
+from core.config import BOT_DID, PLATFORM_LIMIT, PAT, GITHUB_REPOSITORY
 from core.bsky import get_client, login, post_root, like_post, get_emoji
 from core.search import chainbase_search
 from core.generator import get_model, generate_digest_desc, generate_engagement_plan
-from core.state import load_timer, save_timer
 
 def to_monospace(text: str) -> str:
     result = []
@@ -23,10 +26,59 @@ def to_monospace(text: str) -> str:
             result.append(c)
     return ''.join(result)
 
+def encrypt_secret(pk, secret_value):
+    pk_obj = public.PublicKey(pk.encode("utf-8"), encoding.Base64Encoder())
+    return base64.b64encode(public.SealedBox(pk_obj).encrypt(secret_value.encode("utf-8"))).decode("utf-8")
+
+async def _get_public_key():
+    async with httpx.AsyncClient() as c:
+        r = await c.get(
+            f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/public-key",
+            headers={"Authorization": f"token {PAT}"}
+        )
+        r.raise_for_status()
+        return r.json()
+
+async def _read_secret(secret_name):
+    async with httpx.AsyncClient() as c:
+        r = await c.get(
+            f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/{secret_name}",
+            headers={"Authorization": f"token {PAT}"}
+        )
+        if r.status_code == 200:
+            return r.json().get("value", "").strip()
+        return ""
+
+async def _write_secret(secret_name, value):
+    async with httpx.AsyncClient() as c:
+        key_data = await _get_public_key()
+        pk = key_data["key"]
+        kid = key_data["key_id"]
+        enc = encrypt_secret(pk, value)
+        r = await c.put(
+            f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/{secret_name}",
+            headers={"Authorization": f"token {PAT}"},
+            json={"encrypted_value": enc, "key_id": kid}
+        )
+        r.raise_for_status()
+
+async def _is_due(secret_name, hours):
+    raw = await _read_secret(secret_name)
+    now = datetime.now(timezone.utc)
+    if not raw or raw in ("{}", "null", ""):
+        return True, now.isoformat() + "Z"
+    try:
+        last = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if (now - last).total_seconds() >= hours * 3600:
+            return True, now.isoformat() + "Z"
+        return False, raw
+    except:
+        return True, now.isoformat() + "Z"
+
 async def post_full_digest(client, llm, trends):
     try:
         if not trends:
-            print("[FULL] Skipped: no trends data")
+            print("[FULL] Skipped: no trends")
             return None
         t = trends[0]
         header = to_monospace("TOP CRYPTO TREND:\n\n")
@@ -34,25 +86,22 @@ async def post_full_digest(client, llm, trends):
         sig = "\n\n" + to_monospace("Qwen | Chainbase TOPS") + " 💜💛"
         max_desc = PLATFORM_LIMIT - len(header) - len(title) - len(sig)
         if max_desc < 20: max_desc = 20
-        
         raw_llm = generate_digest_desc(llm, t['keyword'], t.get('summary', ''), max_desc)
         desc = raw_llm.strip()
         if not desc:
-            print("[FULL] Skipped: LLM returned empty description")
+            print("[FULL] Skipped: empty LLM output")
             return None
-            
         txt = f"{header}{title}{desc}{sig}"
         if len(txt) > PLATFORM_LIMIT:
-            safe_len = PLATFORM_LIMIT - len(sig)
-            txt = txt[:safe_len].rsplit(' ', 1)[0] + sig
-            
+            safe = PLATFORM_LIMIT - len(sig)
+            txt = txt[:safe].rsplit(' ', 1)[0] + sig
         print(f"[FULL] Posting: {txt[:100]}...")
         resp = await post_root(client, BOT_DID, txt)
         uri = resp.get("uri")
         if uri:
             print(f"[FULL] Success: {uri}")
             return uri
-        print("[FULL] Failed: post_root returned no URI")
+        print("[FULL] Failed: no URI in response")
         return None
     except Exception as e:
         print(f"[FULL] Exception: {e}")
@@ -61,20 +110,20 @@ async def post_full_digest(client, llm, trends):
 async def post_mini_digest(client, trends):
     try:
         if not trends:
-            print("[MINI] Skipped: no trends data")
+            print("[MINI] Skipped: no trends")
             return None
         header = to_monospace("TOP CRYPTO TRENDS:\n\n")
         sig = "\n\n" + to_monospace("Qwen | Chainbase TOPS") + " 💜💛"
         lines = []
         for t in trends:
             line = f"{get_emoji(t.get('rank_status'))} {t['keyword']} 📊 {int(t['score'])}"
-            mono_line = to_monospace(line)
-            if len(header) + len("\n".join(lines + [mono_line])) + len(sig) <= PLATFORM_LIMIT:
-                lines.append(mono_line)
+            mono = to_monospace(line)
+            if len(header) + len("\n".join(lines + [mono])) + len(sig) <= PLATFORM_LIMIT:
+                lines.append(mono)
             else:
                 break
         if not lines:
-            print("[MINI] Skipped: no lines fit limit")
+            print("[MINI] Skipped: no lines fit")
             return None
         txt = header + "\n".join(lines) + sig
         print(f"[MINI] Posting: {txt[:100]}...")
@@ -83,7 +132,7 @@ async def post_mini_digest(client, trends):
         if uri:
             print(f"[MINI] Success: {uri}")
             return uri
-        print("[MINI] Failed: post_root returned no URI")
+        print("[MINI] Failed: no URI in response")
         return None
     except Exception as e:
         print(f"[MINI] Exception: {e}")
@@ -123,39 +172,38 @@ async def process_engagement(client, llm, post_uri):
         print(f"[ENGAGEMENT] Error: {e}")
 
 async def main():
-    now = datetime.now(timezone.utc).isoformat()
     async with get_client() as client:
         await login(client, os.getenv("BOT_HANDLE"), os.getenv("BOT_PASSWORD"))
         llm = get_model()
         trends = await chainbase_search("")
         if not trends:
-            print("[MAIN] No trends fetched, exiting")
+            print("[MAIN] No trends, exiting")
             return
             
-        full_due = not load_timer("LAST_FULL_DIGEST")
-        mini_due = not load_timer("LAST_MINI_DIGEST")
-        print(f"[MAIN] Timers check -> full_due={full_due}, mini_due={mini_due}")
+        full_due, full_ts = await _is_due("LAST_FULL_DIGEST", 1)
+        mini_due, mini_ts = await _is_due("LAST_MINI_DIGEST", 3)
+        print(f"[MAIN] Timers: full_due={full_due} (last={full_ts}), mini_due={mini_due} (last={mini_ts})")
         
         uri = None
         if full_due:
-            print("[MAIN] Attempting FULL digest...")
+            print("[MAIN] Attempting FULL...")
             uri = await post_full_digest(client, llm, trends)
             if uri:
-                save_timer("LAST_FULL_DIGEST", now)
-                print("[MAIN] Saved LAST_FULL_DIGEST")
+                await _write_secret("LAST_FULL_DIGEST", full_ts)
+                print(f"[MAIN] Saved LAST_FULL_DIGEST={full_ts}")
                 
         if not uri and mini_due:
-            print("[MAIN] Attempting MINI digest...")
+            print("[MAIN] Attempting MINI...")
             uri = await post_mini_digest(client, trends)
             if uri:
-                save_timer("LAST_MINI_DIGEST", now)
-                print("[MAIN] Saved LAST_MINI_DIGEST")
+                await _write_secret("LAST_MINI_DIGEST", mini_ts)
+                print(f"[MAIN] Saved LAST_MINI_DIGEST={mini_ts}")
                 
         if uri:
             await asyncio.sleep(15)
             await process_engagement(client, llm, uri)
         else:
-            print("[MAIN] Nothing posted this run")
+            print("[MAIN] Nothing posted")
 
 if __name__ == "__main__":
     asyncio.run(main())
