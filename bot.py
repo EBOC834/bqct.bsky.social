@@ -86,9 +86,14 @@ async def process_item(client, item, llm):
     
     search_results = ""
     if do_search:
-        root_text = root_post.get("text", "") if root_post else ""
-        logger.info(f"[SEARCH] Triggered | root_text='{root_text[:50]}...' | user_text='{user_text[:50]}...'")
-        search_params = generator.extract_search_params(llm, user_text, root_text)
+        query_context_parts = []
+        for p in relevant_posts[-3:]:
+            query_context_parts.append(f"@{p.get('handle', 'unknown')}: {p.get('text', '')}")
+        if root_post:
+            query_context_parts.append(f"[ROOT]: {root_post.get('text', '')}")
+        context_for_query = "\n".join(query_context_parts)
+        
+        search_params = generator.extract_search_params(llm, context_for_query, user_text)
         logger.info(f"[SEARCH] Params extracted: query='{search_params.get('query')}' | time_range={search_params.get('time_range')} | topic={search_params.get('topic')}")
         provider = search.SEARCH_PROVIDERS.get(search_type)
         if provider:
@@ -96,11 +101,20 @@ async def process_item(client, item, llm):
             supported = provider.get("supports", [])
             kwargs = {k: v for k, v in search_params.items() if k in supported and v and str(v).lower() not in ["null", "none", ""]}
             query = search_params.get("query", "")
-            logger.info(f"[SEARCH] Calling {search_type} | query='{query}' | kwargs={kwargs}")
-            search_results = await func(query, **kwargs)
-            if search.is_search_result_valid(search_results, search_type):
-                search_results = search_results[:MAX_SEARCH_RESULTS_LEN]
-                logger.info(f"[SEARCH] Success | results_len={len(search_results)} (truncated to {MAX_SEARCH_RESULTS_LEN})")
+            logger.info(f"[SEARCH] Calling {search_type} | query='{query}' | kwargs={kwargs if kwargs else '(none)'}")
+            raw_results = await func(query, **kwargs)
+            if search.is_search_result_valid(raw_results, search_type):
+                try:
+                    data = json.loads(raw_results)
+                    clean_parts = []
+                    if data.get("answer"):
+                        clean_parts.append(f"AI Answer: {data['answer']}")
+                    for res in data.get("results", [])[:2]:
+                        clean_parts.append(f"- {res.get('title', '')}: {res.get('content', '')[:150]}")
+                    search_results = "\n".join(clean_parts)
+                except:
+                    search_results = raw_results[:MAX_SEARCH_RESULTS_LEN]
+                logger.info(f"[SEARCH] Success | results_len={len(search_results)}")
                 logger.debug(f"[SEARCH] Results preview: {search_results[:300]}...")
             else:
                 logger.warning("[SEARCH] Invalid results, cleared")
