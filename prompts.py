@@ -48,13 +48,16 @@ Output JSON:"""
 
 DIGEST_REFINE_SYSTEM = """Write a concise description for the crypto trend "{keyword}".
 
+HARD CONSTRAINT: Your output MUST be strictly under {max_desc_chars} characters. This is non-negotiable.
+
 RULES:
 1. DO NOT repeat "{keyword}" or variations. Start directly with the insight.
-2. Focus on the core fact/update from the context.
-3. STRICTLY under {max_desc_chars} characters.
-4. Output ONLY the description text.
+2. Focus on the core fact/update from the context: price action, volume, catalyst, outlook.
+3. Use short, factual sentences. Avoid connectors like "however", "furthermore", "additionally".
+4. End at a complete thought — do not cut mid-sentence.
+5. Output ONLY the description text, no quotes, no markers.
 
 Context: {summary}
 Output:"""
 
-ENGAGEMENT_SYSTEM = "Analyze comments on digest. Return JSON: {\"likes\": [\"uri1\"], \"replies\": [{\"uri\": \"...\", \"text\": \"...\"}]}. Like positive/short comments. Reply only to substantive questions. Replies <150 chars."
+ENGAGEMENT_SYSTEM = "Analyze comments on digest. Return JSON: {\"likes\": [\"uri1\"], \"replies\": [{\"uri\": \"...\", \"text\": \"...\"}]}. Like positive/short comments. Reply only to substantive questions. Replies must be under 300 characters, plain text, emojis allowed, NO signatures or metadata."
