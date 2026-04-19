@@ -1,4 +1,3 @@
-# core/digest.py
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -37,26 +36,36 @@ def _write_state(data):
     with open(state_file, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+def _normalize_ts(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+def _parse_ts(ts: str) -> datetime:
+    if not ts or ts in ("{}", "null", ""):
+        return None
+    try:
+        clean = ts.replace("Z", "+00:00").replace("+00:00+00:00", "+00:00")
+        return datetime.fromisoformat(clean)
+    except:
+        return None
+
 def _is_due(secret_name, hours):
     state = _read_state()
     timers = state.get("timers", {})
     raw = timers.get(secret_name, "")
     now = datetime.now(timezone.utc)
-    if not raw or raw in ("{}", "null", ""):
-        return True, now.isoformat() + "Z"
-    try:
-        last = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        if (now - last).total_seconds() >= hours * 3600:
-            return True, now.isoformat() + "Z"
-        return False, raw
-    except:
-        return True, now.isoformat() + "Z"
+    last = _parse_ts(raw)
+    if last is None:
+        return True, _normalize_ts(now)
+    if (now - last).total_seconds() >= hours * 3600:
+        return True, _normalize_ts(now)
+    return False, raw
 
 def _save_timer(secret_name, value):
     state = _read_state()
     if "timers" not in state: state["timers"] = {}
     state["timers"][secret_name] = value
     _write_state(state)
+    print(f"[TIMER] Saved {secret_name}={value}")
 
 async def post_full_digest(client, llm, trends):
     try:
@@ -68,18 +77,15 @@ async def post_full_digest(client, llm, trends):
         score = int(t['score'])
         rank_status = t.get('rank_status', 'same')
         summary = t.get('summary', '')
-        
-        print(f"[FULL] Input data:")
+        print(f"[FULL] Input ")
         print(f"  Keyword: {keyword}")
         print(f"  Score: {score}")
         print(f"  Rank: {rank_status}")
         print(f"  Summary ({len(summary)} chars): {summary[:200]}...")
-        
         emoji_char = get_emoji(rank_status)
         header = to_monospace("TOP CRYPTO TREND:\n\n")
         title = f"{emoji_char} {keyword} 📊 {score}: "
         sig = "\n\n" + to_monospace("Qwen | Chainbase TOPS") + " 💜💛"
-        
         max_desc = PLATFORM_LIMIT - len(header) - len(title) - len(sig)
         print(f"[FULL] Character limits:")
         print(f"  Platform limit: {PLATFORM_LIMIT}")
@@ -87,35 +93,27 @@ async def post_full_digest(client, llm, trends):
         print(f"  Title len: {len(title)}")
         print(f"  Signature len: {len(sig)}")
         print(f"  Max description: {max_desc} chars")
-        
         if max_desc < 20:
             print(f"[FULL] ERROR: max_desc too small ({max_desc})")
             return None
-        
         print(f"[FULL] Calling LLM with max_desc={max_desc}...")
         raw_llm = generate_digest_desc(llm, keyword, summary, max_desc)
         print(f"[FULL] LLM raw output ({len(raw_llm)} chars): '{raw_llm}'")
-        
         desc = raw_llm.strip()
         if not desc:
             print("[FULL] ERROR: LLM returned empty description")
             return None
-        
         print(f"[FULL] Generated description ({len(desc)} chars): {desc}")
-        
         txt = f"{header}{title}{desc}{sig}"
         print(f"[FULL] Full post BEFORE trim ({len(txt)} chars):")
         print(txt)
-        
         if len(txt) > PLATFORM_LIMIT:
             safe = PLATFORM_LIMIT - len(sig)
             trimmed = txt[:safe].rsplit(' ', 1)[0]
             txt = trimmed + sig
             print(f"[FULL] Post trimmed to {len(txt)} chars")
-        
         print(f"[FULL] FINAL POST ({len(txt)} chars):")
         print(txt)
-        
         resp = await post_root(client, BOT_DID, txt)
         uri = resp.get("uri")
         if uri:
@@ -194,7 +192,7 @@ async def process_engagement(client, llm, post_uri):
         print(f"[ENGAGEMENT] Error: {e}")
 
 async def main():
-    now = datetime.now(timezone.utc).isoformat() + "Z"
+    now = _normalize_ts(datetime.now(timezone.utc))
     async with get_client() as client:
         await login(client, os.getenv("BOT_HANDLE"), os.getenv("BOT_PASSWORD"))
         llm = get_model()
