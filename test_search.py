@@ -39,7 +39,7 @@ def test_chainbase(query):
     print(f"\n=== CHAINBASE TEST ===")
     clean_q = clean_query(query)
     if clean_q:
-        url = f"https://api.chainbase.com/tops/v1/tool/search-narrative-candidates?keyword={clean_q}&language=en"
+        url = f"https://api.chainbase.com/tops/v1/tool/search-narrative-candidates?keyword={clean_q}"
         print(f"Search URL: {url}")
     else:
         url = "https://api.chainbase.com/tops/v1/tool/list-trending-topics?language=en"
