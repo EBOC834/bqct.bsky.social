@@ -4,8 +4,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
 import json
+import base64
+import httpx
 from datetime import datetime, timezone
-from core.config import BOT_DID, PLATFORM_LIMIT
+from nacl import encoding, public
+from core.config import BOT_DID, PLATFORM_LIMIT, PAT, GITHUB_REPOSITORY
 from core.bsky import get_client, login, post_root, like_post, get_emoji
 from core.search import chainbase_search
 from core.generator import get_model, generate_digest_desc, generate_engagement_plan
@@ -23,49 +26,54 @@ def to_monospace(text: str) -> str:
             result.append(c)
     return ''.join(result)
 
-def _read_state():
-    state_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "runtime.json")
-    if os.path.exists(state_file):
-        with open(state_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"timers": {}}
+def _encrypt_secret(pk: str, secret_value: str) -> str:
+    pk_obj = public.PublicKey(pk.encode("utf-8"), encoding.Base64Encoder())
+    return base64.b64encode(public.SealedBox(pk_obj).encrypt(secret_value.encode("utf-8"))).decode("utf-8")
 
-def _write_state(data):
-    state_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "runtime.json")
-    os.makedirs(os.path.dirname(state_file), exist_ok=True)
-    with open(state_file, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+async def _get_public_key():
+    async with httpx.AsyncClient() as c:
+        r = await c.get(
+            f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/public-key",
+            headers={"Authorization": f"token {PAT}"}
+        )
+        r.raise_for_status()
+        return r.json()
 
-def _normalize_ts(dt: datetime) -> str:
-    return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+async def _read_secret(secret_name: str) -> str:
+    async with httpx.AsyncClient() as c:
+        r = await c.get(
+            f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/{secret_name}",
+            headers={"Authorization": f"token {PAT}"}
+        )
+        if r.status_code == 200:
+            return r.json().get("value", "").strip()
+        return ""
 
-def _parse_ts(ts: str) -> datetime:
-    if not ts or ts in ("{}", "null", ""):
-        return None
-    try:
-        clean = ts.replace("Z", "+00:00").replace("+00:00+00:00", "+00:00")
-        return datetime.fromisoformat(clean)
-    except:
-        return None
+async def _write_secret(secret_name: str, value: str):
+    async with httpx.AsyncClient() as c:
+        key_data = await _get_public_key()
+        pk = key_data["key"]
+        kid = key_data["key_id"]
+        enc = _encrypt_secret(pk, value)
+        r = await c.put(
+            f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/{secret_name}",
+            headers={"Authorization": f"token {PAT}"},
+            json={"encrypted_value": enc, "key_id": kid}
+        )
+        r.raise_for_status()
+        print(f"[SECRET] Updated {secret_name}")
 
-def _is_due(secret_name, hours):
-    state = _read_state()
-    timers = state.get("timers", {})
-    raw = timers.get(secret_name, "")
+def _is_due(raw: str, hours: int):
     now = datetime.now(timezone.utc)
-    last = _parse_ts(raw)
-    if last is None:
-        return True, _normalize_ts(now)
-    if (now - last).total_seconds() >= hours * 3600:
-        return True, _normalize_ts(now)
-    return False, raw
-
-def _save_timer(secret_name, value):
-    state = _read_state()
-    if "timers" not in state: state["timers"] = {}
-    state["timers"][secret_name] = value
-    _write_state(state)
-    print(f"[TIMER] Saved {secret_name}={value}")
+    if not raw or raw in ("{}", "null", ""):
+        return True, now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    try:
+        last = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if (now - last).total_seconds() >= hours * 3600:
+            return True, now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        return False, raw
+    except:
+        return True, now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 async def post_full_digest(client, llm, trends):
     try:
@@ -112,7 +120,6 @@ async def post_full_digest(client, llm, trends):
             trimmed = txt[:safe].rsplit(' ', 1)[0]
             txt = trimmed + sig
             print(f"[FULL] Post trimmed to {len(txt)} chars")
-        print(f"[DEBUG] First 5 chars ordinals (Normal=65, Mono=120432): {[ord(c) for c in txt[:5]]}")
         print(f"[FULL] FINAL POST ({len(txt)} chars):")
         print(txt)
         resp = await post_root(client, BOT_DID, txt)
@@ -147,7 +154,6 @@ async def post_mini_digest(client, trends):
             print("[MINI] ERROR: No lines fit")
             return None
         txt = header + "\n".join(lines) + sig
-        print(f"[DEBUG] First 5 chars ordinals: {[ord(c) for c in txt[:5]]}")
         print(f"[MINI] Posted ({len(txt)} chars): {txt[:100]}...")
         resp = await post_root(client, BOT_DID, txt)
         uri = resp.get("uri")
@@ -194,7 +200,6 @@ async def process_engagement(client, llm, post_uri):
         print(f"[ENGAGEMENT] Error: {e}")
 
 async def main():
-    now = _normalize_ts(datetime.now(timezone.utc))
     async with get_client() as client:
         await login(client, os.getenv("BOT_HANDLE"), os.getenv("BOT_PASSWORD"))
         llm = get_model()
@@ -203,22 +208,26 @@ async def main():
             print("[MAIN] ERROR: No trends from Chainbase")
             return
         print(f"[MAIN] Got {len(trends)} trends from Chainbase")
-        full_due, full_ts = _is_due("LAST_FULL_DIGEST", 1)
-        mini_due, mini_ts = _is_due("LAST_MINI_DIGEST", 3)
-        print(f"[MAIN] Timers: full_due={full_due} (last={full_ts}), mini_due={mini_due} (last={mini_ts})")
+        
+        # Читаем таймеры из секретов
+        full_raw = await _read_secret("LAST_FULL_DIGEST")
+        mini_raw = await _read_secret("LAST_MINI_DIGEST")
+        full_due, full_ts = _is_due(full_raw, 1)
+        mini_due, mini_ts = _is_due(mini_raw, 3)
+        
+        print(f"[MAIN] Timers: full_due={full_due} (last={full_raw}), mini_due={mini_due} (last={mini_raw})")
+        
         uri = None
         if full_due:
             print("[MAIN] Attempting FULL...")
             uri = await post_full_digest(client, llm, trends)
             if uri:
-                _save_timer("LAST_FULL_DIGEST", now)
-                print(f"[MAIN] Saved LAST_FULL_DIGEST={now}")
+                await _write_secret("LAST_FULL_DIGEST", full_ts)
         if not uri and mini_due:
             print("[MAIN] Attempting MINI...")
             uri = await post_mini_digest(client, trends)
             if uri:
-                _save_timer("LAST_MINI_DIGEST", now)
-                print(f"[MAIN] Saved LAST_MINI_DIGEST={now}")
+                await _write_secret("LAST_MINI_DIGEST", mini_ts)
         if uri:
             await asyncio.sleep(15)
             await process_engagement(client, llm, uri)
