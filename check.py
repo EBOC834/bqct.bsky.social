@@ -112,17 +112,24 @@ async def main():
                     continue
                 if idx > latest_idx:
                     latest_idx = idx
-                
                 has_t = "!t" in txt.lower()
                 has_c = "!c" in txt.lower()
                 has_trigger = has_t or has_c
                 has_mention = f"@{BOT_HANDLE}" in txt
-                
-                if auth == OWNER_DID and reason == "reply" and not has_trigger and not has_mention:
-                    logger.info(f"Skipping owner reply (deferred to engagement): {txt[:30]}...")
-                    continue
-                
-                if has_trigger or has_mention or reason == "reply":
+                if auth == OWNER_DID and reason == "reply":
+                    if has_trigger or has_mention:
+                        search_type = "tavily" if has_t else ("chainbase" if has_c else None)
+                        relevant.append({
+                            "uri": uri,
+                            "text": txt,
+                            "has_search": has_trigger,
+                            "search_type": search_type
+                        })
+                        logger.info(f"Relevant owner reply: {txt[:50]}... | trigger={has_trigger} | mention={has_mention}")
+                    else:
+                        logger.info(f"Skipping owner reply (no trigger/mention): {txt[:30]}...")
+                        continue
+                elif has_trigger or has_mention or reason == "reply":
                     search_type = "tavily" if has_t else ("chainbase" if has_c else None)
                     relevant.append({
                         "uri": uri,
@@ -130,8 +137,7 @@ async def main():
                         "has_search": has_trigger,
                         "search_type": search_type
                     })
-                    trigger_label = "trigger=!t/!c" if has_trigger else "trigger=mention" if has_mention else "trigger=reply"
-                    logger.info(f"Relevant: {txt[:30]}... | {trigger_label}")
+                    logger.info(f"Relevant: {txt[:50]}...")
             if relevant:
                 github_output = os.getenv("GITHUB_OUTPUT", "")
                 if github_output:
