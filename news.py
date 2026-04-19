@@ -1,6 +1,5 @@
 import os
 import logging
-import re
 from datetime import datetime, timezone
 import state
 import search
@@ -14,23 +13,10 @@ BOT_DID = os.getenv("BOT_DID")
 
 def get_trend_emoji(rank_status: str) -> str:
     status = (rank_status or "same").lower()
-    if status == "new":
-        return "🆕"
-    elif status == "up":
-        return "↗️"
-    elif status == "down":
-        return "↘️"
+    if status == "new": return "🆕"
+    elif status == "up": return "↗️"
+    elif status == "down": return "↘️"
     return "➡️"
-
-def smart_truncate(text: str, max_len: int) -> str:
-    if len(text) <= max_len:
-        return text
-    truncated = text[:max_len - 3]
-    for sep in ['.', '!', '?', ';']:
-        idx = truncated.rfind(sep)
-        if idx > max_len * 0.7:
-            return truncated[:idx + 1] + "..."
-    return truncated.rsplit(' ', 1)[0] + "..."
 
 def check_timer(secret_name, hours):
     now_utc = datetime.now(timezone.utc)
@@ -40,49 +26,43 @@ def check_timer(secret_name, hours):
     try:
         last_ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         diff = now_utc - last_ts
-        if diff.total_seconds() >= hours * 3600:
-            return True, now_utc.isoformat()
+        if diff.total_seconds() >= hours * 3600: return True, now_utc.isoformat()
         return False, raw
-    except Exception:
-        return True, now_utc.isoformat()
+    except Exception: return True, now_utc.isoformat()
 
-def check_mini_timer():
-    return check_timer("LAST_NEWS", 1)
+def check_mini_timer(): return check_timer("LAST_NEWS", 1)
 
 async def post_if_due(client, llm):
-    do_full, full_ts = check_timer("LAST_FULL_DIGEST", 1)
-    do_mini, mini_ts = check_timer("LAST_MINI_DIGEST", 3)
-    if not do_full and not do_mini:
-        return False
+    do_full, _ = check_timer("LAST_FULL_DIGEST", 1)
+    do_mini, _ = check_timer("LAST_MINI_DIGEST", 3)
+    if not do_full and not do_mini: return False
+    
     last_digest_uri = state.load_last_digest_uri()
     if last_digest_uri and llm:
         try:
             last_rec = await bsky.get_record(client, last_digest_uri)
-            last_digest_text = last_rec["value"].get("text", "") if last_rec else ""
-            await engagement.process_digest_engagement(client, llm, last_digest_uri, last_digest_text)
-        except Exception as e:
-            logger.error(f"Failed to process previous digest engagement: {e}")
+            last_text = last_rec["value"].get("text", "") if last_rec else ""
+            await engagement.process_digest_engagement(client, llm, last_digest_uri, last_text)
+        except Exception as e: logger.error(f"Engagement failed: {e}")
+        
     trends = await search.chainbase_search("")
-    if not trends:
-        return False
+    if not trends: return False
+    
+    header = "TOP CRYPTO TREND:\n\n"
     signature = "\n\nQwen | Chainbase TOPS 💜💛"
     now_utc = datetime.now(timezone.utc).isoformat()
+    
     if do_mini:
-        header = "TOP CRYPTO TRENDS:\n\n"
         lines = []
         for item in trends:
-            keyword = item.get("keyword", "Unknown")
-            score = item.get("score", 0)
-            rank_status = item.get("rank_status", "same")
-            trend_emoji = get_trend_emoji(rank_status)
-            line = f"{trend_emoji} {keyword} 📊 {int(score)}"
-            test_content = "\n".join(lines + [line])
-            if len(header) + len(test_content) + len(signature) <= 300:
+            k = item.get("keyword", "Unknown")
+            s = int(item.get("score", 0))
+            e = get_trend_emoji(item.get("rank_status", "same"))
+            line = f"{e} {k} 📊 {s}"
+            if len(header) + len("\n".join(lines + [line])) + len(signature) <= 300:
                 lines.append(line)
-            else:
-                break
-        if not lines:
-            return False
+            else: break
+        if not lines: return False
         post_text = header + "\n".join(lines) + signature
         try:
             resp = await bsky.post_root(client, BOT_DID, post_text)
@@ -93,26 +73,33 @@ async def post_if_due(client, llm):
                 state.save_daily_post_ts(now_utc)
                 state._write_secret("LAST_MINI_DIGEST", now_utc)
                 state._write_secret("LAST_FULL_DIGEST", now_utc)
-            logger.info("Posted mini digest")
             return True
         except Exception as e:
             logger.error(f"Mini post failed: {e}")
             return False
     elif do_full:
-        header = "TOP CRYPTO TREND:\n\n"
         item = trends[0]
-        keyword = item.get("keyword", "")
+        keyword = item.get("keyword", "Unknown")
         score = int(item.get("score", 0))
-        rank_status = item.get("rank_status", "same")
-        trend_emoji = get_trend_emoji(rank_status)
+        rank = item.get("rank_status", "same")
         summary = item.get("summary", "")
+        
+        trend_emoji = get_trend_emoji(rank)
         score_suffix = f"\n📊 {score}"
-        max_text_chars = 248 - len(score_suffix)
-        raw_input = f"{keyword}: {summary}"
-        final_text = generator.generate_digest(llm, raw_input, max_chars=max_text_chars)
-        final_line = f"{trend_emoji} {final_text}{score_suffix}"
-        max_content_len = 300 - len(header) - len(signature)
-        final_line = smart_truncate(final_line, max_content_len)
+        emoji_prefix = f"{trend_emoji} "
+        colon_space = ": "
+        
+        max_line_len = 300 - len(header) - len(signature)
+        fixed_chars = len(emoji_prefix) + len(keyword) + len(colon_space) + len(score_suffix)
+        max_desc_chars = max_line_len - fixed_chars
+        if max_desc_chars < 10: max_desc_chars = 10
+        
+        desc = generator.generate_digest(llm, keyword, summary, max_desc_chars)
+        final_line = f"{emoji_prefix}{keyword}{colon_space}{desc}{score_suffix}"
+        
+        if len(final_line) > max_line_len:
+            final_line = final_line[:max_line_len-3].rsplit(' ', 1)[0] + "..."
+            
         post_text = header + final_line + signature
         try:
             resp = await bsky.post_root(client, BOT_DID, post_text)
@@ -122,7 +109,6 @@ async def post_if_due(client, llm):
                 state.save_active_digest_uri(new_uri)
                 state.save_daily_post_ts(now_utc)
                 state._write_secret("LAST_FULL_DIGEST", now_utc)
-            logger.info("Posted full digest")
             return True
         except Exception as e:
             logger.error(f"Full post failed: {e}")
