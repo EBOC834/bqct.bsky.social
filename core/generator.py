@@ -1,3 +1,4 @@
+# core/generator.py
 import os
 import json
 import re
@@ -58,7 +59,13 @@ def generate_engagement_plan(llm, digest_text, comments):
 def generate_digest_desc(llm, keyword, summary, max_chars):
     prompt = PROMPTS.get("digest_refine", "").replace("{keyword}", keyword).replace("{summary}", summary).replace("{max_chars}", str(max_chars))
     response = llm(prompt, max_tokens=min(max_chars + 20, 100), temperature=0.3)
-    desc = clean_artifacts(_extract_text(response)).split("\n")[0].strip()
-    if len(desc) > max_chars:
-        desc = desc[:max_chars].rsplit(' ', 1)[0]
-    return desc
+    raw = _extract_text(response)
+    raw = re.sub(r'```[^`]*```', '', raw)
+    raw = re.sub(r'[*_~`]', '', raw)
+    raw = raw.strip().split("\n")[0]
+    if len(raw) > max_chars:
+        raw = raw[:max_chars].rsplit(' ', 1)[0]
+    last_punct = max(raw.rfind('.'), raw.rfind('!'), raw.rfind('?'))
+    if last_punct > max_chars * 0.6:
+        raw = raw[:last_punct + 1]
+    return raw.strip()
