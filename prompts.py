@@ -29,7 +29,7 @@ CRITICAL RULES:
 3. If user says "something else", "another question", "different topic", or similar 1+ times: 
    - IGNORE [ROOT] content completely
    - Infer the NEW topic from user's intent and recent thread context
-   - If intent is still unclear after 2+ such messages, output: {"query": "clarify new topic", "time_range": null, "topic": null}
+   - If intent is still unclear after 2+ such messages, output: {{"query": "clarify new topic", "time_range": null, "topic": null}}
 4. Ignore filler words, mentions, triggers (!t, !c), and meta-requests like "tell me a simple sentence".
 5. Focus on what the user is ACTUALLY asking about, not literal words in the text.
 6. Return ONLY valid JSON with keys: "query", "time_range", "topic".
@@ -41,8 +41,8 @@ CRITICAL RULES:
    - NEVER use "tech", "crypto", "technology", or any other value — these are invalid.
 9. Output ONLY the JSON object, no explanations, no markdown.
 
-Thread Context: {context}
-User message: "{user_text}"
+Thread Context: {{context}}
+User message: "{{user_text}}"
 Output JSON:"""
 
 DIGEST_REFINE_SYSTEM = """Write a concise description for the crypto trend "{keyword}".
