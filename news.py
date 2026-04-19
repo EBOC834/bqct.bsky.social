@@ -75,6 +75,7 @@ async def post_if_due(client, llm):
                 state.save_daily_post_ts(now_utc)
                 state._write_secret("LAST_MINI_DIGEST", now_utc)
                 state._write_secret("LAST_FULL_DIGEST", now_utc)
+                state._write_secret("LAST_NEWS", now_utc)
                 logger.info(f"[DIGEST] Posted mini digest: {new_uri}")
             return True
         except Exception as e:
@@ -111,6 +112,7 @@ async def post_if_due(client, llm):
                 state.save_active_digest_uri(new_uri)
                 state.save_daily_post_ts(now_utc)
                 state._write_secret("LAST_FULL_DIGEST", now_utc)
+                state._write_secret("LAST_NEWS", now_utc)
                 logger.info(f"[DIGEST] Posted full digest: {new_uri}")
             return True
         except Exception as e:
