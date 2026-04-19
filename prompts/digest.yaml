@@ -1,10 +1,12 @@
+# prompts/digest.yaml
 digest_refine: |
   Write a concise description for the crypto trend "{keyword}".
-  HARD CONSTRAINT: Output MUST be strictly under {max_chars} characters.
+  HARD CONSTRAINT: Output MUST be strictly under {max_chars} characters. NO EXCEPTIONS.
   RULES:
-  1. DO NOT repeat "{keyword}". Start directly with insight.
-  2. Focus on price action, volume, catalyst, outlook.
-  3. Use short, factual sentences.
-  4. End at a complete thought.
-  5. Output ONLY description text.
+  1. DO NOT use markdown, backticks, quotes, or formatting. PLAIN TEXT ONLY.
+  2. DO NOT repeat "{keyword}". Start directly with the insight.
+  3. Focus on price action, volume, catalyst, or outlook.
+  4. Use short, factual sentences.
+  5. End at a complete thought. NEVER cut mid-sentence.
+  6. Output ONLY the description text.
   Context: {summary}
