@@ -85,8 +85,17 @@ def save_daily_post_ts(ts: str):
 def merge_contexts(root_post, recent_posts, memory, search_results, user_question) -> str:
     parts = []
     bot_handle = os.getenv("BOT_HANDLE", "")
+    for p in reversed(recent_posts):
+        if p.get("handle") == bot_handle:
+            continue
+        text = p.get("text", "")
+        if p.get("link_hints"):
+            text += "\n" + "\n".join(p["link_hints"])
+        if p.get("alts"):
+            text += "\n" + "\n".join(p["alts"])
+        parts.append(f"@{p.get('handle', 'unknown')}: {text}")
     if user_question:
-        parts.append(f"[User Question]:\n{user_question}")
+        parts.append(f"\n[User Question]:\n{user_question}")
     if memory:
         parts.append(f"\n[Memory]:\n{memory}")
     if search_results:
@@ -98,13 +107,4 @@ def merge_contexts(root_post, recent_posts, memory, search_results, user_questio
         if root_post.get("alts"):
             text += "\n" + "\n".join(root_post["alts"])
         parts.append(f"\n[ROOT] @{root_post.get('handle', 'unknown')}: {text}")
-    for p in recent_posts:
-        if p.get("handle") == bot_handle:
-            continue
-        text = p.get("text", "")
-        if p.get("link_hints"):
-            text += "\n" + "\n".join(p["link_hints"])
-        if p.get("alts"):
-            text += "\n" + "\n".join(p["alts"])
-        parts.append(f"@{p.get('handle', 'unknown')}: {text}")
     return "\n".join(parts)
