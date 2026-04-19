@@ -27,10 +27,8 @@ async def tavily_search(query: str, time_range: str = None, topic: str = None) -
         }
         if time_range and str(time_range).lower() in ["day", "week", "month", "year", "d", "w", "m", "y"]:
             payload["time_range"] = str(time_range).lower()
-        if topic and str(topic).lower() in ["news", "finance", "general"]:
+        if topic and str(topic).lower() in ["news", "finance"]:
             payload["topic"] = str(topic).lower()
-        elif topic is None or str(topic).lower() in ["null", "none", ""]:
-            payload["topic"] = "general"
         
         log_params = {k: v for k, v in payload.items()}
         logger.debug(f"[SEARCH] Tavily payload: {json_lib.dumps(log_params, indent=2)}")
@@ -128,7 +126,7 @@ async def execute_if_needed(llm, item, root_text):
         v = search_params.get(k)
         if v is None or str(v).lower() in ["null", "none", ""]:
             continue
-        if k == "topic" and str(v).lower() not in ["news", "finance", "general"]:
+        if k == "topic" and str(v).lower() not in ["news", "finance"]:
             continue
         if k == "time_range" and str(v).lower() not in ["day", "week", "month", "year", "d", "w", "m", "y"]:
             continue
@@ -142,11 +140,11 @@ async def execute_if_needed(llm, item, root_text):
     logger.warning(f"[SEARCH] Invalid result | type={search_type}")
     return ""
 
-def extract_search_params(llm, user_text, root_text):
+def extract_search_params(llm, context, user_text):
     from prompts import QUERY_REFINE_SYSTEM
     from generator import _extract_text, clean_artifacts
     import json
-    prompt = f"{QUERY_REFINE_SYSTEM.format(user_text=user_text, root_text=root_text)}"
+    prompt = QUERY_REFINE_SYSTEM.replace("{{context}}", context).replace("{{user_text}}", user_text)
     logger.debug(f"[SEARCH] LLM prompt for params: {prompt[:500]}...")
     try:
         response = llm(prompt, max_tokens=150, temperature=0.2)
