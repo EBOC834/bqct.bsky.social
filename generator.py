@@ -21,19 +21,43 @@ def get_max_reply_chars(search_type: str = None) -> int:
     sig = get_signature(search_type)
     return 300 - len(sig)
 
-SYSTEM_PROMPT = "You are a concise, expert crypto/tech analyst. Answer strictly based on provided context. Prioritize [ROOT] post. If asked for 'other' or 'different' news, avoid repeating thread context. Synthesize ONLY new info from search. If unknown, state so. Output only final answer."
+SYSTEM_PROMPT = """You are a concise, expert crypto/tech analyst. Answer strictly based on provided context.
+
+PRIORITY RULES:
+1. [User Question] has HIGHEST priority — answer THIS first.
+2. If user says "something else", "another question", or "different topic", IGNORE previous context and focus on inferring the NEW intent.
+3. Use [Search Results] for fresh data, [ROOT] for original topic context.
+4. If context is unclear after 2+ "something else" messages, ask for clarification.
+5. Keep answers under the character limit provided. Output only the final answer.
+
+FORMAT RULES:
+- NEVER output bracketed markers like [ROOT], [User Question], [Memory], [Search Results] in your response.
+- These markers are for context structure only. Your answer must be plain text only.
+- Do not prefix your answer with @handle, [ROOT], or any metadata.
+
+Output only the final answer."""
+
 SUMMARIZE_SYSTEM = "Maintain concise thread summary. Preserve [ROOT] anchor. Update with essential reply info. Remove redundancy. Keep under 300 chars excluding [ROOT]. Output only summary text."
+
 QUERY_REFINE_SYSTEM = """You are a search query optimizer. Extract a concise, factual search query from the user's question based on thread context.
 
 CRITICAL RULES:
-1. If user says "something else", "another question", or references previous answers, IGNORE the root post content and infer the NEW topic from the user's intent.
-2. Ignore filler words, mentions, triggers (!t, !c), and meta-requests like "tell me a simple sentence".
-3. Focus on what the user is ACTUALLY asking about, not what words appear literally in the text.
-4. If the root post is about X but user asks about Y, query should be about Y.
-5. Return ONLY valid JSON with keys: "query", "time_range", "topic".
-6. For "time_range": use "day", "week", "month", "year", or null.
-7. For "topic": use "news", "finance", or null (null = general, use by default).
-8. Output ONLY the JSON object, no explanations, no markdown.
+1. [User Question] has HIGHEST priority, BUT you MUST resolve references like "these", "them", "those", "it", "this" by looking at RECENT messages in the thread context.
+2. If user says "these services", "those tools", "them", infer the referent from the 1-2 most recent owner messages in context (e.g., "AI music generation services" if earlier messages mention AIVA, Amper, etc.).
+3. If user says "something else", "another question", "different topic", or similar 1+ times: 
+   - IGNORE [ROOT] content completely
+   - Infer the NEW topic from user's intent and recent thread context
+   - If intent is still unclear after 2+ such messages, output: {"query": "clarify new topic", "time_range": null, "topic": null}
+4. Ignore filler words, mentions, triggers (!t, !c), and meta-requests like "tell me a simple sentence".
+5. Focus on what the user is ACTUALLY asking about, not literal words in the text.
+6. Return ONLY valid JSON with keys: "query", "time_range", "topic".
+7. For "time_range": use "day", "week", "month", "year", "d", "w", "m", "y", or null.
+8. For "topic": 
+   - Use null (DEFAULT) for general search — this is the default for most queries.
+   - Use "news" ONLY if user explicitly asks for news/updates/latest developments.
+   - Use "finance" ONLY if user explicitly asks about markets/trading/financial data.
+   - NEVER use "tech", "crypto", "technology", or any other value — these are invalid.
+9. Output ONLY the JSON object, no explanations, no markdown.
 
 User message: "{user_text}"
 Context: "{root_text}"
@@ -67,6 +91,8 @@ def clean_artifacts(text: str) -> str:
     text = re.sub(r'\s*\[\d+\s*characters?\]', '', text)
     text = re.sub(r'\s*[!|/][tc]\b', '', text)
     text = re.sub(r'\s{2,}', ' ', text)
+    text = re.sub(r'^\[ROOT\]\s*@[^\s]+:\s*', '', text)
+    text = re.sub(r'^\[[A-Z_]+\]\s*', '', text)
     return text.strip()
 
 def generate_digest(llm, keyword: str, summary: str, max_desc_chars: int) -> str:
@@ -91,22 +117,22 @@ def get_answer(llm, memory, context, search_results, user_text, do_search, searc
     signature = get_signature(search_type)
     clean_context = clean_artifacts(context)
     clean_user = clean_artifacts(user_text)
+    safe_max_tokens = max(int(max_chars * 0.6), 50)
     prompt = f"""{SYSTEM_PROMPT}
 
-STRICT OUTPUT LIMIT: Your entire response must be under {max_chars} characters. This limit is non-negotiable — Bluesky will reject longer posts.
+CRITICAL CONSTRAINT: Your response MUST be strictly under {max_chars} characters. This is a hard limit enforced by the platform. Do not add greetings, sign-offs, or extra text. Stop exactly when complete.
 
 Context:
 {clean_context}
 
 User: {clean_user}
 
-Answer (under {max_chars} chars, no signature needed):"""
-    response = llm(prompt, max_tokens=min(max_chars + 50, MAX_TOKENS), temperature=TEMPERATURE)
+Answer:"""
+    response = llm(prompt, max_tokens=safe_max_tokens, temperature=TEMPERATURE)
     raw = clean_artifacts(_extract_text(response))
-    reply = raw.split('\n')[0].strip() if '\n' in raw else raw
+    reply = raw.split('\n')[0].strip()
     if len(reply) > max_chars:
-        reply = reply[:max_chars-3].rsplit(' ', 1)[0] + "..."
-        logger.warning(f"[LLM] Reply truncated: {len(raw)} → {len(reply)} chars")
+        reply = reply[:max_chars].rsplit(' ', 1)[0]
     return reply
 
 def extract_search_params(llm, user_text, root_text):
