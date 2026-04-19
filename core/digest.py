@@ -52,8 +52,9 @@ async def post_mini_digest(client, trends):
     lines = []
     for t in trends:
         line = f"{get_emoji(t.get('rank_status'))} {t['keyword']} 📊 {int(t['score'])}"
-        if len(header) + len("\n".join(lines + [line])) + len(sig) <= PLATFORM_LIMIT:
-            lines.append(line)
+        mono_line = to_monospace(line)
+        if len(header) + len("\n".join(lines + [mono_line])) + len(sig) <= PLATFORM_LIMIT:
+            lines.append(mono_line)
         else:
             break
     if not lines:
