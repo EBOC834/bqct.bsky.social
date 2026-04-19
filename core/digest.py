@@ -1,3 +1,4 @@
+# core/digest.py
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,22 +16,33 @@ async def post_full_digest(client, llm, trends):
     if not trends:
         return None
     t = trends[0]
-    header = "TOP CRYPTO TREND:\n"
+    header = "TOP CRYPTO TREND:\n\n"
     title = f"{get_emoji(t.get('rank_status'))} {t['keyword']} 📊 {int(t['score'])}: "
-    sig = "\nQwen | Chainbase TOPS 💜💛"
-    max_desc = PLATFORM_LIMIT - len(header) - len(sig) - len(title)
-    desc = generate_digest_desc(llm, t['keyword'], t.get('summary', ''), max(20, max_desc))
-    txt = header + title + desc + sig
+    sig = "\n\nQwen | Chainbase TOPS 💜💛"
+    max_desc = PLATFORM_LIMIT - len(header) - len(title) - len(sig)
+    if max_desc < 20: max_desc = 20
+    
+    raw_llm = generate_digest_desc(llm, t['keyword'], t.get('summary', ''), max_desc)
+    print(f"[LLM RAW OUTPUT]: {raw_llm}")
+    
+    desc = raw_llm.strip()
+    print(f"[GENERATED BODY]: {desc}")
+    
+    txt = f"{header}{title}{desc}{sig}"
     if len(txt) > PLATFORM_LIMIT:
-        txt = txt[:PLATFORM_LIMIT].rsplit(' ', 1)[0]
+        safe_len = PLATFORM_LIMIT - len(sig)
+        txt = txt[:safe_len].rsplit(' ', 1)[0] + sig
+    
+    print(f"[FINAL DIGEST SENT]: {txt}")
+    
     resp = await post_root(client, BOT_DID, txt)
     return resp.get("uri")
 
 async def post_mini_digest(client, trends):
     if not trends:
         return None
-    header = "TOP CRYPTO TRENDS:\n"
-    sig = "\nQwen | Chainbase TOPS 💜💛"
+    header = "TOP CRYPTO TRENDS:\n\n"
+    sig = "\n\nQwen | Chainbase TOPS 💜💛"
     lines = []
     for t in trends:
         line = f"{get_emoji(t.get('rank_status'))} {t['keyword']} 📊 {int(t['score'])}"
