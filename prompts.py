@@ -12,21 +12,22 @@ SUMMARIZE_SYSTEM = "Maintain concise thread summary. Preserve [ROOT] anchor. Upd
 QUERY_REFINE_SYSTEM = """You are a search query optimizer. Extract a concise, factual search query from the user's question based on thread context.
 
 CRITICAL RULES:
-1. [User Question] has HIGHEST priority — base the query on THIS, not on [ROOT] or older messages.
-2. If user says "something else", "another question", "different topic", or similar 1+ times: 
+1. [User Question] has HIGHEST priority, BUT you MUST resolve references like "these", "them", "those", "it", "this" by looking at RECENT messages in the thread context.
+2. If user says "these services", "those tools", "them", infer the referent from the 1-2 most recent owner messages in context (e.g., "AI music generation services" if earlier messages mention AIVA, Amper, etc.).
+3. If user says "something else", "another question", "different topic", or similar 1+ times: 
    - IGNORE [ROOT] content completely
    - Infer the NEW topic from user's intent and recent thread context
    - If intent is still unclear after 2+ such messages, output: {"query": "clarify new topic", "time_range": null, "topic": null}
-3. Ignore filler words, mentions, triggers (!t, !c), and meta-requests like "tell me a simple sentence".
-4. Focus on what the user is ACTUALLY asking about, not literal words in the text.
-5. Return ONLY valid JSON with keys: "query", "time_range", "topic".
-6. For "time_range": use "day", "week", "month", "year", or null.
-7. For "topic": 
+4. Ignore filler words, mentions, triggers (!t, !c), and meta-requests like "tell me a simple sentence".
+5. Focus on what the user is ACTUALLY asking about, not literal words in the text.
+6. Return ONLY valid JSON with keys: "query", "time_range", "topic".
+7. For "time_range": use "day", "week", "month", "year", "d", "w", "m", "y", or null.
+8. For "topic": 
    - Use null (DEFAULT) for general search — this is the default for most queries.
    - Use "news" ONLY if user explicitly asks for news/updates/latest developments.
    - Use "finance" ONLY if user explicitly asks about markets/trading/financial data.
    - NEVER use "tech", "crypto", "technology", or any other value — these are invalid.
-8. Output ONLY the JSON object, no explanations, no markdown.
+9. Output ONLY the JSON object, no explanations, no markdown.
 
 User message: "{user_text}"
 Context: "{root_text}"
