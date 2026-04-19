@@ -7,6 +7,7 @@ from config import BOT_DID
 
 logger = logging.getLogger(__name__)
 MAX_COMMENTS_FOR_ENGAGEMENT = 50
+MAX_REPLY_CHARS = 300
 
 async def process_digest_engagement(client, llm, digest_uri, digest_text):
     logger.info(f"[ENGAGEMENT] Processing digest: {digest_uri[:50]}...")
@@ -80,8 +81,11 @@ async def process_digest_engagement(client, llm, digest_uri, digest_text):
                 parent_cid = comment["cid"]
                 root_parts = digest_uri.split("/")
                 root_cid = root_parts[-1] if len(root_parts) > 4 else ""
-                await bsky.post_reply(client, BOT_DID, text, digest_uri, root_cid, uri, parent_cid)
-                logger.info(f"[ENGAGEMENT] Replied to @{comment['handle']}: {text[:50]}...")
+                clean_reply = text[:MAX_REPLY_CHARS].strip()
+                if len(clean_reply) > MAX_REPLY_CHARS:
+                    clean_reply = clean_reply[:MAX_REPLY_CHARS].rsplit(' ', 1)[0]
+                await bsky.post_reply(client, BOT_DID, clean_reply, digest_uri, root_cid, uri, parent_cid)
+                logger.info(f"[ENGAGEMENT] Replied to @{comment['handle']}: {clean_reply[:50]}...")
         except Exception as e:
             logger.error(f"[ENGAGEMENT] Reply failed for {uri}: {e}")
     
