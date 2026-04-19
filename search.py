@@ -20,14 +20,15 @@ async def tavily_search(query: str, time_range: str = None, topic: str = None) -
         payload = {
             "api_key": TAVILY_API_KEY,
             "query": clean_q,
-            "max_results": 5,
-            "include_answer": True,
-            "include_raw_content": True
+            "search_depth": "basic",
+            "max_results": 3,
+            "include_answer": "basic",
+            "include_raw_content": "text"
         }
-        if time_range in ["day", "week", "month"]:
+        if time_range in ["day", "week", "month", "year"]:
             payload["time_range"] = time_range
             logger.debug(f"[SEARCH] Added time_range={time_range}")
-        if topic in ["news", "tech", "crypto"]:
+        if topic in ["news", "finance"]:
             payload["topic"] = topic
             logger.debug(f"[SEARCH] Added topic={topic}")
         logger.debug(f"[SEARCH] Tavily payload: {payload}")
@@ -43,7 +44,7 @@ async def tavily_search(query: str, time_range: str = None, topic: str = None) -
                 logger.info(f"[SEARCH] Tavily answer preview: {data['answer'][:150]}...")
             if data.get("results"):
                 logger.info(f"[SEARCH] Tavily results count: {len(data['results'])}")
-                for i, res in enumerate(data["results"][:2]):
+                for i, res in enumerate(data["results"]):
                     logger.debug(f"[SEARCH] Result #{i+1} | title={res.get('title', '')[:50]} | url={res.get('url', '')[:50]}")
             return r.text
     except httpx.HTTPStatusError as e:
@@ -130,7 +131,7 @@ def extract_search_params(llm, user_text, root_text):
         return params
     except Exception as e:
         logger.warning(f"[SEARCH] Failed to parse search params: {e} | fallback to user_text")
-        return {"query": clean_artifacts(user_text), "time_range": "w", "topic": "tech"}
+        return {"query": clean_artifacts(user_text), "time_range": "week", "topic": None}
 
 SEARCH_PROVIDERS = {
     "tavily": {"func": tavily_search, "supports": ["time_range", "topic"]},
