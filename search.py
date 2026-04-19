@@ -67,10 +67,13 @@ async def chainbase_search(query: str) -> list:
         async with httpx.AsyncClient() as client:
             if query and query.strip():
                 clean_q = clean_query(query)
-                keywords = re.findall(r'\b[a-zA-Z]{2,}\b', clean_q)
-                keyword = next((k for k in keywords if k.lower() not in ['oke', 'bro', 'btw', 'what', 'about', 'ticker', 'in', 'trends', 'the', 'and', 'but', 'is', 'are', 'was', 'were']), keywords[0] if keywords else '')
+                words = re.findall(r'\b[a-zA-Z]{2,}\b', clean_q)
+                stop_words = {'oke', 'bro', 'btw', 'what', 'about', 'ticker', 'in', 'trends', 'the', 'and', 'but', 'is', 'are', 'was', 'were', 'latest', 'news', 'update', 'one', 'give', 'me', 'tell', 'can', 'you', 'will', 'allow', 'services', 'free', 'best', 'quality', 'reviews', 'solution', 'simple', 'sentence', 'done', 'interesting', 'answer', 'asking', 'something', 'else', 'another', 'question', 'think', 'used', 'generation', 'music', 'creating', 'techno', 'year', 'allow', 'platforms', 'leverage', 'machine', 'learning', 'generate', 'beats', 'melodies', 'harmonies', 'users', 'produce', 'high', 'tracks', 'minimal', 'input'}
+                candidates = [w for w in words if w.lower() not in stop_words]
+                ticker_match = next((w for w in candidates if w.upper() in ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'DOT', 'AVAX', 'MATIC', 'LINK'] or w.startswith('$')), None)
+                keyword = ticker_match if ticker_match else (next((w for w in candidates if len(w) >= 4), candidates[0] if candidates else ''))
                 url = f"https://api.chainbase.com/tops/v1/tool/search-narrative-candidates?keyword={keyword}&language=en"
-                logger.debug(f"[SEARCH] Chainbase search URL: {url}")
+                logger.debug(f"[SEARCH] Chainbase search URL: {url} | extracted_keyword={keyword}")
                 r = await client.get(url, timeout=SEARCH_TIMEOUT)
             else:
                 url = "https://api.chainbase.com/tops/v1/tool/list-trending-topics?language=en"
