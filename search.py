@@ -65,7 +65,7 @@ async def chainbase_search(query: str) -> list:
         async with httpx.AsyncClient() as client:
             if query and query.strip():
                 clean_q = clean_query(query)
-                url = f"https://api.chainbase.com/tops/v1/tool/search-narrative-candidates?keyword={clean_q}&language=en"
+                url = f"https://api.chainbase.com/tops/v1/tool/search-narrative-candidates?keyword={clean_q}"
                 logger.debug(f"[SEARCH] Chainbase search URL: {url}")
                 r = await client.get(url, timeout=SEARCH_TIMEOUT)
             else:
