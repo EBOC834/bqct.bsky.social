@@ -8,12 +8,15 @@ import logging
 from nacl import encoding, public
 from datetime import datetime, timezone
 
+import config
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
 BOT_HANDLE = os.getenv("BOT_HANDLE")
 BOT_PASSWORD = os.getenv("BOT_PASSWORD")
 OWNER_DID = os.getenv("OWNER_DID")
+BOT_DID = config.BOT_DID
 PAT = os.getenv("PAT")
 GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
 LAST_PROCESSED = os.getenv("LAST_PROCESSED", "").strip()
@@ -72,6 +75,24 @@ async def fetch_with_retry(client, url, headers=None, params=None, max_retries=2
                 continue
             raise
 
+async def get_known_digest_uris(client, token) -> set:
+    uris = set()
+    for secret in ["LAST_DIGEST_URI", "ACTIVE_DIGEST_URI"]:
+        try:
+            r = await fetch_with_retry(
+                client,
+                f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/secrets/{secret}",
+                headers={"Authorization": f"token {PAT}"},
+                timeout=10
+            )
+            if r.status_code == 200:
+                val = r.json().get("value", "").strip()
+                if val and val not in ("{}", "null", ""):
+                    uris.add(val)
+        except Exception:
+            pass
+    return uris
+
 async def main():
     try:
         if is_empty(LAST_PROCESSED):
@@ -92,6 +113,9 @@ async def main():
                 raise Exception(f"Login failed: {r.status_code}")
             token = r.json()["accessJwt"]
             headers = {"Authorization": f"Bearer {token}"}
+            
+            known_digest_uris = await get_known_digest_uris(client, token)
+            
             r = await fetch_with_retry(
                 client,
                 "https://bsky.social/xrpc/app.bsky.notification.listNotifications",
@@ -122,11 +146,9 @@ async def main():
                     record = n.get("record", {})
                     reply_ref = record.get("reply", {})
                     parent_uri = reply_ref.get("parent", {}).get("uri") if reply_ref else None
-                    if parent_uri:
-                        parent_did = parent_uri.split("/")[2] if len(parent_uri.split("/")) >= 3 else None
-                        if parent_did == BOT_DID:
-                            logger.info(f"[DEFER] Skipping reply to bot's post: {txt[:50]}...")
-                            continue
+                    if parent_uri and parent_uri in known_digest_uris:
+                        logger.info(f"[DEFER] Skipping digest reply (engagement will handle): {txt[:50]}...")
+                        continue
                 if auth == OWNER_DID and reason == "reply":
                     search_type = "tavily" if has_t else ("chainbase" if has_c else None)
                     relevant.append({
