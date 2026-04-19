@@ -127,7 +127,7 @@ async def process_item(client, item, llm):
     
     logger.debug(f"[POST] Calling post_reply | bot_did={BOT_DID} | reply_len={len(final_reply)} | root_uri={root_uri} | root_cid={root_cid[:10] if root_cid else '(empty)'}... | parent_uri={uri} | parent_cid={parent_cid[:10] if parent_cid else '(empty)'}...")
     try:
-        result = await bsky.post_reply(client, BOT_DID, reply, root_uri, root_cid, uri, parent_cid)
+        result = await bsky.post_reply(client, BOT_DID, final_reply, root_uri, root_cid, uri, parent_cid)
         logger.info("Reply posted successfully.")
         logger.debug(f"[POST] Response | result_keys={list(result.keys()) if result else None}")
     except Exception as e:
