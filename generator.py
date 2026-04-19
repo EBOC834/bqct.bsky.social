@@ -30,6 +30,11 @@ PRIORITY RULES:
 4. If context is unclear after 2+ "something else" messages, ask for clarification.
 5. Keep answers under the character limit provided. Output only the final answer.
 
+SEARCH HANDLING:
+- If [Search Results] directly answers the user's question, synthesize it concisely.
+- If [Search Results] is empty, irrelevant, or unrelated to the core question, IGNORE IT COMPLETELY and answer using thread context only.
+- Never let irrelevant search results override the user's clear intent.
+
 FORMAT RULES:
 - NEVER output bracketed markers like [ROOT], [User Question], [Memory], [Search Results] in your response.
 - These markers are for context structure only. Your answer must be plain text only.
@@ -43,7 +48,7 @@ QUERY_REFINE_SYSTEM = """You are a search query optimizer. Extract a concise, fa
 
 CRITICAL RULES:
 1. [User Question] has HIGHEST priority, BUT you MUST resolve references like "these", "them", "those", "it", "this" by looking at RECENT messages in the thread context.
-2. If user says "these services", "those tools", "them", infer the referent from the 1-2 most recent owner messages in context (e.g., "AI music generation services" if earlier messages mention AIVA, Amper, etc.).
+2. If user says "these services", "those tools", "them", infer the referent from the 1-2 most recent owner messages in context.
 3. If user says "something else", "another question", "different topic", or similar 1+ times: 
    - IGNORE [ROOT] content completely
    - Infer the NEW topic from user's intent and recent thread context
@@ -59,8 +64,8 @@ CRITICAL RULES:
    - NEVER use "tech", "crypto", "technology", or any other value — these are invalid.
 9. Output ONLY the JSON object, no explanations, no markdown.
 
+Thread Context: {context}
 User message: "{user_text}"
-Context: "{root_text}"
 Output JSON:"""
 
 DIGEST_REFINE_SYSTEM = """Write a concise description for the crypto trend "{keyword}".
@@ -135,8 +140,8 @@ Answer:"""
         reply = reply[:max_chars].rsplit(' ', 1)[0]
     return reply
 
-def extract_search_params(llm, user_text, root_text):
-    prompt = f"{QUERY_REFINE_SYSTEM.format(user_text=user_text, root_text=root_text)}"
+def extract_search_params(llm, context, user_text):
+    prompt = f"{QUERY_REFINE_SYSTEM.format(context=context, user_text=user_text)}"
     response = llm(prompt, max_tokens=150, temperature=0.2)
     try:
         text = _extract_text(response)
